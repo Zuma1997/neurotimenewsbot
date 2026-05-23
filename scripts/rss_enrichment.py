@@ -388,11 +388,8 @@ def main() -> None:
     if enriched:
         save_digest_to_supabase(sb, enriched)
 
-    # Step 7: Send email digest
-    if enriched:
-        send_digest_email(enriched)
-    else:
-        log.info("No enriched articles — skipping email digest")
+    log.info("Pipeline finished. No email digest configured.")
+    log.info("View enriched articles in the Telegram bot or web dashboard.")
 
 
 if __name__ == "__main__":

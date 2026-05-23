@@ -31,10 +31,6 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          OUTLOOK_CLIENT_ID: ${{ secrets.OUTLOOK_CLIENT_ID }}
-          OUTLOOK_CLIENT_SECRET: ${{ secrets.OUTLOOK_CLIENT_SECRET }}
-          OUTLOOK_TENANT_ID: ${{ secrets.OUTLOOK_TENANT_ID }}
-          DIGEST_EMAIL_TO: ${{ secrets.DIGEST_EMAIL_TO }}
         run: python scripts/rss_enrichment.py
 
       - name: Upload enrichment log on success
