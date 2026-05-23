@@ -114,6 +114,104 @@ def daily_digest(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+# ── Enrichment endpoints ─────────────────────────────────────────────────────
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+
+from typing import List
+from pydantic import BaseModel as _BaseModel
+
+class KeywordsRequest(_BaseModel):
+    keywords: List[str]
+
+
+@app.get("/api/enrichment/keywords")
+def get_enrichment_keywords():
+    """Get current enrichment keywords from Supabase."""
+    try:
+        sb = get_engine().sb
+        resp = (
+            sb.table("enrichment_config")
+            .select("keyword, active, last_run_at")
+            .execute()
+        )
+        return {"keywords": resp.data or []}
+    except Exception as exc:
+        log.error("Get keywords error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/enrichment/keywords")
+def save_enrichment_keywords(req: KeywordsRequest):
+    """Save enrichment keywords to Supabase."""
+    try:
+        from scripts.keyword_enrichment import save_keywords_to_supabase
+        sb = get_engine().sb
+        save_keywords_to_supabase(sb, req.keywords)
+        return {"saved": len(req.keywords), "keywords": req.keywords}
+    except Exception as exc:
+        log.error("Save keywords error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/enrichment/run")
+def run_enrichment_now(req: KeywordsRequest = None):
+    """
+    Run keyword enrichment immediately.
+    Uses provided keywords or loads from DB if not provided.
+    Requires GOOGLE_API_KEY and GOOGLE_CSE_ID env vars.
+    """
+    import threading
+    from openai import OpenAI as _OpenAI
+    from scripts.keyword_enrichment import (
+        run_enrichment, load_keywords_from_supabase
+    )
+
+    google_api_key = os.getenv("GOOGLE_API_KEY")
+    google_cse_id = os.getenv("GOOGLE_CSE_ID")
+
+    if not google_api_key or not google_cse_id:
+        raise HTTPException(
+            status_code=400,
+            detail="GOOGLE_API_KEY and GOOGLE_CSE_ID must be set in environment variables. "
+                   "Get them at: console.cloud.google.com (Custom Search API)"
+        )
+
+    engine = get_engine()
+    oai = _OpenAI(
+        api_key=os.getenv("OPENAI_API_KEY"),
+        base_url="https://api.openai.com/v1"
+    )
+
+    # Determine keywords
+    if req and req.keywords:
+        keywords = req.keywords
+    else:
+        keywords = load_keywords_from_supabase(engine.sb)
+
+    if not keywords:
+        return {"message": "No keywords configured", "enriched": 0}
+
+    log.info("Starting enrichment for keywords: %s", keywords)
+
+    # Run in background thread so API returns immediately
+    result_holder = {}
+
+    def _run():
+        result_holder.update(
+            run_enrichment(keywords, oai, engine.sb, google_api_key, google_cse_id)
+        )
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout=120)  # wait max 2 minutes
+
+    return result_holder if result_holder else {
+        "message": "Enrichment started (running in background)",
+        "keywords": keywords
+    }
+
+
 # ── Serve dashboard.html ─────────────────────────────────────────────────────
 DASHBOARD = Path(__file__).parent.parent / "dashboard.html"
 

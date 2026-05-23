@@ -300,6 +300,78 @@ header {
   color: var(--accent2); font-weight: 600;
 }
 
+/* ── Settings page ── */
+.settings-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.7); z-index: 200;
+  align-items: center; justify-content: center;
+}
+.settings-overlay.open { display: flex; }
+.settings-modal {
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 18px; padding: 32px; width: 560px; max-width: 95vw;
+  max-height: 85vh; overflow-y: auto;
+  animation: fadeUp 0.25s ease both;
+}
+.settings-title {
+  font-family: var(--font-head); font-size: 18px; font-weight: 800;
+  color: var(--text); margin-bottom: 24px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.settings-close {
+  background: none; border: none; color: var(--muted);
+  font-size: 20px; cursor: pointer; padding: 4px 8px;
+  border-radius: 6px; transition: color 0.15s;
+}
+.settings-close:hover { color: var(--text); }
+.settings-section { margin-bottom: 24px; }
+.settings-label {
+  font-family: var(--font-head); font-size: 11px; font-weight: 700;
+  color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: 10px;
+}
+.kw-tag-list {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;
+  min-height: 36px;
+}
+.kw-tag {
+  background: #6c63ff18; border: 1px solid #6c63ff40;
+  border-radius: 20px; padding: 5px 12px;
+  font-size: 13px; color: var(--accent2);
+  display: flex; align-items: center; gap: 6px;
+}
+.kw-tag-remove {
+  cursor: pointer; color: var(--muted); font-size: 14px;
+  line-height: 1; transition: color 0.15s;
+}
+.kw-tag-remove:hover { color: var(--neg); }
+.kw-add-row {
+  display: flex; gap: 8px;
+}
+.kw-input {
+  flex: 1; background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: 8px; padding: 9px 14px;
+  font-family: var(--font-body); font-size: 14px; color: var(--text);
+  outline: none;
+}
+.kw-input:focus { border-color: var(--accent); }
+.kw-input::placeholder { color: var(--muted); }
+.settings-result {
+  margin-top: 16px; padding: 14px 16px;
+  border-radius: 10px; font-size: 13px; line-height: 1.5;
+}
+.settings-result.success { background: #2ecc8a18; border: 1px solid #2ecc8a30; color: var(--pos); }
+.settings-result.error   { background: #ff5a5a18; border: 1px solid #ff5a5a30; color: var(--neg); }
+.settings-result.info    { background: #6c63ff18; border: 1px solid #6c63ff30; color: var(--accent2); }
+
+.btn-settings {
+  background: var(--surface2); border: 1px solid var(--border2);
+  color: var(--muted); border-radius: 8px; padding: 7px 14px;
+  font-family: var(--font-head); font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: all 0.15s;
+}
+.btn-settings:hover { border-color: var(--accent); color: var(--accent2); }
+
 @media (max-width: 768px) {
   .main-grid { grid-template-columns: 1fr; }
   .stats-row { display: none; }
@@ -316,21 +388,71 @@ header {
       <div class="logo-dot"></div>
       Neurotime
     </div>
-    <div class="stats-row">
-      <div class="stat">
-        <div class="stat-val" id="total-count">—</div>
-        <div class="stat-lbl">Xəbər</div>
+    <div style="display:flex;align-items:center;gap:16px">
+      <div class="stats-row">
+        <div class="stat">
+          <div class="stat-val" id="total-count">—</div>
+          <div class="stat-lbl">Xəbər</div>
+        </div>
+        <div class="stat">
+          <div class="stat-val" id="enriched-count">—</div>
+          <div class="stat-lbl">Enriched</div>
+        </div>
+        <div class="stat">
+          <div class="stat-val">15+</div>
+          <div class="stat-lbl">Mənbə</div>
+        </div>
       </div>
-      <div class="stat">
-        <div class="stat-val" id="enriched-count">—</div>
-        <div class="stat-lbl">Enriched</div>
-      </div>
-      <div class="stat">
-        <div class="stat-val">15+</div>
-        <div class="stat-lbl">Mənbə</div>
-      </div>
+      <button class="btn-settings" onclick="openSettings()">⚙️ Parametrlər</button>
     </div>
   </header>
+
+  <!-- SETTINGS MODAL -->
+  <div class="settings-overlay" id="settings-overlay" onclick="closeSettingsIfOutside(event)">
+    <div class="settings-modal">
+      <div class="settings-title">
+        ⚙️ Parametrlər
+        <button class="settings-close" onclick="closeSettings()">×</button>
+      </div>
+
+      <!-- Keywords section -->
+      <div class="settings-section">
+        <div class="settings-label">🔍 Axətarış açar sözləri</div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.5">
+          Bu sözlər əsasında hər gün Google-da yeni xəbərlər axtarılır,
+          GPT-4o ilə analiz edilir və verilənlər bazına əlavə edilir.
+        </p>
+        <div class="kw-tag-list" id="kw-tag-list"></div>
+        <div class="kw-add-row">
+          <input class="kw-input" id="kw-input" placeholder="Məs: AccessBank kredit, SOCAR neft..." onkeydown="if(event.key==='Enter') addKeyword()">
+          <button class="btn" style="padding:9px 16px;font-size:13px" onclick="addKeyword()">+ Əlavə et</button>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="settings-section">
+        <div class="settings-label">🚀 ƏMƏLİYYAT</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn" onclick="saveAndRun()" id="run-btn">▶ İndi işlət</button>
+          <button class="btn btn-ghost" onclick="saveKeywords()" id="save-btn">💾 Yadda saxla</button>
+        </div>
+        <p style="font-size:12px;color:var(--muted);margin-top:8px">
+          “İndi işlət” — dərhal axətarır və yeni məqalələri əlavə edir (1-2 dəqiqə).<br>
+          Hər gün saat 09:00-da avtomatik işləyir (GitHub Actions).
+        </p>
+      </div>
+
+      <!-- Google API notice -->
+      <div class="settings-section">
+        <div class="settings-label">🔑 API Konfiqurasiya</div>
+        <div id="api-status" style="font-size:12px;color:var(--muted);line-height:1.6">
+          Yoxlanır...
+        </div>
+      </div>
+
+      <div id="settings-result"></div>
+    </div>
+  </div>
 
   <!-- SEARCH -->
   <div class="search-wrap">
@@ -729,6 +851,127 @@ async function loadStats() {
         data.enriched_articles.toLocaleString();
     }
   } catch { /* silently fail */ }
+}
+
+// ── Settings modal ───────────────────────────────────────────────────────────────────────────────────
+let currentKeywords = [];
+
+function openSettings() {
+  document.getElementById("settings-overlay").classList.add("open");
+  loadSettingsKeywords();
+  checkApiStatus();
+}
+
+function closeSettings() {
+  document.getElementById("settings-overlay").classList.remove("open");
+}
+
+function closeSettingsIfOutside(e) {
+  if (e.target === document.getElementById("settings-overlay")) closeSettings();
+}
+
+function renderKeywordTags() {
+  const list = document.getElementById("kw-tag-list");
+  if (!currentKeywords.length) {
+    list.innerHTML = '<span style="font-size:12px;color:var(--muted)">Hələ açar söz əlavə edilməyib</span>';
+    return;
+  }
+  list.innerHTML = currentKeywords.map((kw, i) => `
+    <div class="kw-tag">
+      ${kw}
+      <span class="kw-tag-remove" onclick="removeKeyword(${i})">×</span>
+    </div>
+  `).join("");
+}
+
+function addKeyword() {
+  const input = document.getElementById("kw-input");
+  const val = input.value.trim();
+  if (!val) return;
+  if (!currentKeywords.includes(val)) {
+    currentKeywords.push(val);
+    renderKeywordTags();
+  }
+  input.value = "";
+  input.focus();
+}
+
+function removeKeyword(i) {
+  currentKeywords.splice(i, 1);
+  renderKeywordTags();
+}
+
+async function loadSettingsKeywords() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/enrichment/keywords`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    currentKeywords = (data.keywords || []).map(k => k.keyword);
+    renderKeywordTags();
+  } catch { renderKeywordTags(); }
+}
+
+async function checkApiStatus() {
+  const el = document.getElementById("api-status");
+  try {
+    const resp = await fetch(`${API_BASE}/api/enrichment/keywords`);
+    if (resp.ok) {
+      el.innerHTML = `✅ <b>Supabase</b> bağlıdır<br>
+        ℹ️ Google API aktiv etmək üçün serverdə <code>GOOGLE_API_KEY</code> və <code>GOOGLE_CSE_ID</code> dəyişənlərini təyin edin.<br>
+        <a href="https://console.cloud.google.com/apis/library/customsearch.googleapis.com" target="_blank" style="color:var(--accent2)">Google Custom Search API əldə et →</a>`;
+    }
+  } catch {
+    el.textContent = "❌ API bağlı deyil";
+  }
+}
+
+async function saveKeywords() {
+  const btn = document.getElementById("save-btn");
+  btn.disabled = true; btn.textContent = "Saxlanır...";
+  const result = document.getElementById("settings-result");
+  try {
+    const resp = await fetch(`${API_BASE}/api/enrichment/keywords`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keywords: currentKeywords }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    result.innerHTML = `<div class="settings-result success">✅ ${currentKeywords.length} açar söz yadda saxlandı</div>`;
+  } catch (err) {
+    result.innerHTML = `<div class="settings-result error">❌ Xəta: ${err.message}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = "💾 Yadda saxla";
+  }
+}
+
+async function saveAndRun() {
+  const btn = document.getElementById("run-btn");
+  btn.disabled = true; btn.textContent = "⏳ Axətarılır...";
+  const result = document.getElementById("settings-result");
+  result.innerHTML = `<div class="settings-result info">⏳ Google-da axətarılır və GPT-4o ilə analiz edilir... (1-2 dəqiqə)</div>`;
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/enrichment/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keywords: currentKeywords }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      result.innerHTML = `<div class="settings-result error">❌ ${data.detail || 'Xəta baş verdi'}</div>`;
+    } else {
+      result.innerHTML = `<div class="settings-result success">
+        ✅ <b>${data.enriched || 0}</b> yeni məqalə əlavə edildi<br>
+        🔍 Tapildi: ${data.total_found || 0} | Yeni: ${data.total_new || 0} | İrrəlevant: ${data.skipped_irrelevant || 0}
+      </div>`;
+      // Refresh stats
+      loadStats();
+    }
+  } catch (err) {
+    result.innerHTML = `<div class="settings-result error">❌ ${err.message}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = "▶ İndi işlət";
+  }
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────────────────────
