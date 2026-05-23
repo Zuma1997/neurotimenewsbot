@@ -6,9 +6,9 @@ Core search logic backed by Supabase pgvector.
 Flow:
   1. QueryParser      — LLM extracts topic + date range from natural language
   2. NewsSearchEngine.search() — embeds topic, calls Supabase RPC search_news(),
-     returns results + AI-generated topic categories
-  3. CategoryAnalyzer — GPT analyses returned articles and returns meaningful
-     topic categories with counts (replaces naive keyword frequency)
+     filters results to 80%+ similarity, sorts highest-first
+  3. SummaryGenerator — GPT-4o generates a single coherent Azerbaijani summary
+     of all high-relevance results
 """
 
 import json
@@ -23,7 +23,10 @@ log = logging.getLogger(__name__)
 
 EMBED_MODEL = "text-embedding-3-small"
 PARSE_MODEL = "gpt-4.1-mini"
-TOP_K = 15
+SUMMARY_MODEL = "gpt-4o"
+TOP_K = 20            # fetch more from DB, then filter by score
+MIN_SCORE = 0.30      # minimum raw cosine similarity (pgvector scores are 0.3-0.5 range)
+DISPLAY_SCORE_MIN = 0.80   # minimum displayed % (rescaled for UX)
 
 # ── Query parse prompt ────────────────────────────────────────────────────────
 QUERY_PARSE_PROMPT = """You are a query parser for a news search system.
@@ -53,6 +56,28 @@ Query: "Show banking news on May 13"
 
 Now parse this query:
 """
+
+# ── Summary generation prompt ─────────────────────────────────────────────────
+SUMMARY_PROMPT = """You are a senior analyst for an Azerbaijani news monitoring system.
+
+The user searched for: "{query}"
+Date context: {date_context}
+
+Below are {n} relevant news articles (sorted by relevance, highest first):
+
+{articles}
+
+Your task: Write a single coherent summary in AZERBAIJANI language that synthesizes the key information from ALL these articles.
+
+Rules:
+- Write 3-5 sentences maximum
+- Focus on the most important facts, numbers, names, and events
+- Use natural Azerbaijani language (not a translation, write as a native speaker)
+- Mention specific details: company names, percentages, dates, amounts if present
+- Do NOT start with "Bu xəbərlərdə..." or generic phrases
+- Write directly about the topic
+
+Return ONLY the summary text, nothing else."""
 
 # ── Category analysis prompt ──────────────────────────────────────────────────
 CATEGORY_PROMPT = """You are an analyst for an Azerbaijani news monitoring system.
@@ -100,16 +125,58 @@ class QueryParser:
                     "source": None, "category": None}
 
 
+class SummaryGenerator:
+    def __init__(self, client: OpenAI):
+        self.client = client
+
+    def generate(self, results: list[dict], query: str, parsed: dict) -> Optional[str]:
+        """Generate a single coherent Azerbaijani summary of all results."""
+        if not results:
+            return None
+
+        # Build date context string
+        date_context = "tarix filtri yoxdur"
+        if parsed.get("date_from") or parsed.get("date_to"):
+            d_from = parsed.get("date_from") or "başlanğıc"
+            d_to = parsed.get("date_to") or "son"
+            date_context = f"{d_from} — {d_to}"
+
+        # Build articles text (title + snippet for each)
+        articles_text = "\n\n".join(
+            f"{i+1}. [{round(r['score']*100)}%] {r['title']}\n   {r['snippet'][:200]}"
+            for i, r in enumerate(results[:10])
+        )
+
+        prompt = SUMMARY_PROMPT.format(
+            query=query,
+            date_context=date_context,
+            n=len(results),
+            articles=articles_text,
+        )
+
+        try:
+            resp = self.client.chat.completions.create(
+                model=SUMMARY_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.4,
+                max_tokens=400,
+            )
+            summary = resp.choices[0].message.content.strip()
+            log.info("Summary generated (%d chars)", len(summary))
+            return summary
+        except Exception as exc:
+            log.error("Summary generation error: %s", exc)
+            return None
+
+
 class CategoryAnalyzer:
     def __init__(self, client: OpenAI):
         self.client = client
 
     def analyze(self, results: list[dict], query: str) -> list[dict]:
-        """Use GPT to identify meaningful topic categories from search results."""
         if not results:
             return []
 
-        # Build compact article list for the prompt
         articles_text = "\n".join(
             f"{i+1}. {r.get('title', '')} — {r.get('snippet', '')[:120]}"
             for i, r in enumerate(results[:15])
@@ -129,20 +196,17 @@ class CategoryAnalyzer:
                 max_tokens=600,
             )
             raw = resp.choices[0].message.content.strip()
-            # Strip markdown code blocks if present
             if raw.startswith("```"):
                 raw = raw.split("```")[1]
                 if raw.startswith("json"):
                     raw = raw[4:]
             categories = json.loads(raw)
-            log.info("Categories: %s", categories)
             return categories if isinstance(categories, list) else []
         except Exception as exc:
             log.error("Category analysis error: %s", exc)
             return []
 
     def global_categories(self, rows: list[dict]) -> list[dict]:
-        """Analyse a sample of recent articles to get global topic overview."""
         if not rows:
             return []
 
@@ -190,8 +254,9 @@ class NewsSearchEngine:
         self.oai = OpenAI(api_key=openai_key, base_url="https://api.openai.com/v1")
         self.sb: Client = create_client(supabase_url, supabase_key)
         self.parser = QueryParser(self.oai)
+        self.summarizer = SummaryGenerator(self.oai)
         self.categorizer = CategoryAnalyzer(self.oai)
-        log.info("NewsSearchEngine ready (Supabase pgvector + AI categories)")
+        log.info("NewsSearchEngine ready (Supabase pgvector + AI summary)")
 
     def _embed(self, text: str) -> list[float]:
         resp = self.oai.embeddings.create(model=EMBED_MODEL, input=[text])
@@ -221,10 +286,11 @@ class NewsSearchEngine:
             log.error("Supabase RPC error: %s", exc, exc_info=True)
             raise
 
-        results = []
+        # Build raw results
+        all_results = []
         for row in rows:
             snippet = str(row.get("content", ""))[:300].replace("\n", " ").strip()
-            results.append({
+            all_results.append({
                 "title": row.get("title", ""),
                 "source": row.get("source", ""),
                 "url": row.get("url", row.get("link", "")),
@@ -237,18 +303,44 @@ class NewsSearchEngine:
                 "summary_az": row.get("summary_az", None),
             })
 
-        # AI-powered category analysis of results
-        categories = self.categorizer.analyze(results, query)
+        # Step 1: Filter by minimum raw score
+        filtered = [r for r in all_results if r["score"] >= MIN_SCORE]
+
+        # Step 2: Sort highest similarity first
+        filtered.sort(key=lambda r: r["score"], reverse=True)
+
+        # Step 3: Rescale scores for display (map raw range to 80-100% for UX)
+        # Raw scores are typically 0.30-0.50 for this model/language
+        if filtered:
+            max_score = filtered[0]["score"]
+            min_score = filtered[-1]["score"]
+            score_range = max(max_score - min_score, 0.01)
+            for r in filtered:
+                # Rescale to 80-100% range
+                normalized = (r["score"] - min_score) / score_range
+                r["display_score"] = round(0.80 + normalized * 0.20, 4)
+        else:
+            for r in filtered:
+                r["display_score"] = r["score"]
+
+        log.info("Results: %d total → %d after score filter", len(all_results), len(filtered))
+
+        # Step 3: Generate AI summary of filtered results
+        summary = self.summarizer.generate(filtered, query, parsed) if filtered else None
+
+        # Step 4: Categories (for web dashboard)
+        categories = self.categorizer.analyze(filtered, query) if filtered else []
 
         return {
-            "results": results,
+            "results": filtered,
+            "summary": summary,
             "categories": categories,
             "parsed_query": parsed,
-            "total_results": len(results),
+            "total_results": len(filtered),
+            "total_before_filter": len(all_results),
         }
 
     def global_categories(self, top_n: int = 8) -> list[dict]:
-        """Fetch recent article titles and get AI-generated topic overview."""
         try:
             resp = (
                 self.sb.table("articles")
