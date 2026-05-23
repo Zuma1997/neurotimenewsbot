@@ -38,6 +38,7 @@ Return a JSON object with these fields:
 - "date_to": end date in YYYY-MM-DD format, or null
 - "source": specific news source/domain if mentioned, or null
 - "category": news category if mentioned, or null
+- "language": detected language of the query — exactly one of: "az" (Azerbaijani), "ru" (Russian), "en" (English)
 
 The dataset covers May 10–15, 2026, plus daily enriched articles added after that.
 If the user says "on May 13", set both date_from and date_to to "2026-05-13".
@@ -46,19 +47,46 @@ If "before DATE" → date_from = null, date_to = DATE.
 
 Examples:
 Query: "Find news about AccessBank between May 12 and May 14"
-→ {"topic": "AccessBank", "date_from": "2026-05-12", "date_to": "2026-05-14", "source": null, "category": null}
+→ {"topic": "AccessBank", "date_from": "2026-05-12", "date_to": "2026-05-14", "source": null, "category": null, "language": "en"}
 
 Query: "SOCAR haqqında xəbərlər"
-→ {"topic": "SOCAR", "date_from": null, "date_to": null, "source": null, "category": null}
+→ {"topic": "SOCAR", "date_from": null, "date_to": null, "source": null, "category": null, "language": "az"}
 
-Query: "Show banking news on May 13"
-→ {"topic": "banking", "date_from": "2026-05-13", "date_to": "2026-05-13", "source": null, "category": null}
+Query: "Скажи про аксес банк что было 14ого мая"
+→ {"topic": "аксес банк", "date_from": "2026-05-14", "date_to": "2026-05-14", "source": null, "category": null, "language": "ru"}
 
 Now parse this query:
 """
 
 # ── Summary generation prompt ─────────────────────────────────────────────────
-SUMMARY_PROMPT = """You are a senior analyst for an Azerbaijani news monitoring system.
+SUMMARY_PROMPTS = {
+    "az": """Sən Azərbaycan xəbər monitorinq sisteminin baş analitikisən.
+
+İstifadəçi "{query}" sorğusunu göndərdi.
+Tarix konteksti: {date_context}
+
+Aşağıda əlaqəlilik səviyyəsinə görə sıralanmış {n} məqalə var:
+
+{articles}
+
+Vəzifən: Bu məqalələrin əsas məlumatlarını əhatə edən 3-5 cümləlik xülasə yaz. Azərbaycan dilində yaz. Konkret faktlar, rəqəmlər, adlar qeyd et. "Bu xəbərlərdə..." kimi adi ifadələrlə başlama.
+
+Yalnız xülasə mətnini qaytar, izahat yox.""",
+
+    "ru": """Tы — старший аналитик азербайджанской системы мониторинга новостей.
+
+Пользователь ищет: "{query}"
+Контекст дат: {date_context}
+
+Ниже {n} релевантных статей, отсортированных по релевантности:
+
+{articles}
+
+Задача: Напиши краткое резюме на РУССКОМ языке (3-5 предложений). Упоминай конкретные факты, цифры, названия. Не начинай с шаблонных фраз.
+
+Верни только текст резюме, без пояснений.""",
+
+    "en": """You are a senior analyst for an Azerbaijani news monitoring system.
 
 The user searched for: "{query}"
 Date context: {date_context}
@@ -67,17 +95,10 @@ Below are {n} relevant news articles (sorted by relevance, highest first):
 
 {articles}
 
-Your task: Write a single coherent summary in AZERBAIJANI language that synthesizes the key information from ALL these articles.
+Task: Write a concise summary in ENGLISH (3-5 sentences) synthesizing the key information. Mention specific facts, numbers, names. Do NOT start with generic phrases.
 
-Rules:
-- Write 3-5 sentences maximum
-- Focus on the most important facts, numbers, names, and events
-- Use natural Azerbaijani language (not a translation, write as a native speaker)
-- Mention specific details: company names, percentages, dates, amounts if present
-- Do NOT start with "Bu xəbərlərdə..." or generic phrases
-- Write directly about the topic
-
-Return ONLY the summary text, nothing else."""
+Return ONLY the summary text, nothing else.""",
+}
 
 # ── Category analysis prompt ──────────────────────────────────────────────────
 CATEGORY_PROMPT = """You are an analyst for an Azerbaijani news monitoring system.
@@ -130,24 +151,28 @@ class SummaryGenerator:
         self.client = client
 
     def generate(self, results: list[dict], query: str, parsed: dict) -> Optional[str]:
-        """Generate a single coherent Azerbaijani summary of all results."""
+        """Generate a multilingual summary based on detected query language."""
         if not results:
             return None
 
-        # Build date context string
-        date_context = "tarix filtri yoxdur"
+        lang = parsed.get("language", "az")
+        if lang not in SUMMARY_PROMPTS:
+            lang = "az"
+
+        # Build date context string in the right language
+        no_date = {"az": "tarix filtri yoxdur", "ru": "без фильтра дат", "en": "no date filter"}
+        date_context = no_date.get(lang, "no date filter")
         if parsed.get("date_from") or parsed.get("date_to"):
-            d_from = parsed.get("date_from") or "başlanğıc"
-            d_to = parsed.get("date_to") or "son"
+            d_from = parsed.get("date_from") or ("başlangıc" if lang == "az" else ("начало" if lang == "ru" else "start"))
+            d_to = parsed.get("date_to") or ("son" if lang == "az" else ("конец" if lang == "ru" else "end"))
             date_context = f"{d_from} — {d_to}"
 
-        # Build articles text (title + snippet for each)
         articles_text = "\n\n".join(
             f"{i+1}. [{round(r['score']*100)}%] {r['title']}\n   {r['snippet'][:200]}"
             for i, r in enumerate(results[:10])
         )
 
-        prompt = SUMMARY_PROMPT.format(
+        prompt = SUMMARY_PROMPTS[lang].format(
             query=query,
             date_context=date_context,
             n=len(results),
@@ -162,7 +187,7 @@ class SummaryGenerator:
                 max_tokens=400,
             )
             summary = resp.choices[0].message.content.strip()
-            log.info("Summary generated (%d chars)", len(summary))
+            log.info("Summary generated (lang=%s, %d chars)", lang, len(summary))
             return summary
         except Exception as exc:
             log.error("Summary generation error: %s", exc)

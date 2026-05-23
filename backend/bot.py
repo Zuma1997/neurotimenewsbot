@@ -2,14 +2,14 @@
 bot.py
 ------
 Telegram bot for the AI News Search Assistant.
-New response format:
-  🔍 Topic — date
-  📋 Xülasə: [AI-generated summary]
-  📰 Mənbələr: [compact source list with % and link]
-  🔑 Açar sözlər: [topic]
+Multilingual: detects query language (az/ru/en) and responds in the same language.
 
-Run:
-    PYTHONPATH=backend python backend/bot.py
+Response format:
+  🔍 Topic — date
+  (N results, M ≥80%)
+  📋 Xülasə / Резюме / Summary: [AI-generated]
+  📰 Mənbələr / Источники / Sources: [compact list]
+  🔑 Açar sözlər / Ключевые слова / Keywords: topic
 """
 
 import logging
@@ -45,10 +45,55 @@ def get_engine() -> NewsSearchEngine:
     return _engine
 
 
+# ── Multilingual labels ───────────────────────────────────────────────────────
+LABELS = {
+    "az": {
+        "summary":   "📋 *Xülasə:*",
+        "sources":   "📰 *Mənbələr:*",
+        "keywords":  "🔑 *Açar sözlər:*",
+        "no_results": "😕 Nəticə tapılmadı\\. Başqa sorğu cəhd edin\\.",
+        "searching":  "🔍 Axtarılır…",
+        "found":      "{total} nəticədən {shown} ≥80% uyğunluq",
+        "more":       "Daha {n} nəticə var ▼",
+        "categories": "📊 *Kateqoriyalar:*",
+    },
+    "ru": {
+        "summary":   "📋 *Резюме:*",
+        "sources":   "📰 *Источники:*",
+        "keywords":  "🔑 *Ключевые слова:*",
+        "no_results": "😕 Результатов не найдено\\. Попробуйте другой запрос\\.",
+        "searching":  "🔍 Поиск…",
+        "found":      "{total} результатов, {shown} ≥80% совпадения",
+        "more":       "Ещё {n} результатов ▼",
+        "categories": "📊 *Категории:*",
+    },
+    "en": {
+        "summary":   "📋 *Summary:*",
+        "sources":   "📰 *Sources:*",
+        "keywords":  "🔑 *Keywords:*",
+        "no_results": "😕 No results found\\. Try a different query\\.",
+        "searching":  "🔍 Searching…",
+        "found":      "{total} results, {shown} ≥80% match",
+        "more":       "{n} more results ▼",
+        "categories": "📊 *Categories:*",
+    },
+}
+
+
+def get_labels(lang: str) -> dict:
+    return LABELS.get(lang, LABELS["az"])
+
+
 # ── Formatters ────────────────────────────────────────────────────────────────
+def escape_md(text: str) -> str:
+    """Escape special MarkdownV2 characters."""
+    for ch in r"_*[]()~`>#+-=|{}.!":
+        text = text.replace(ch, f"\\{ch}")
+    return text
+
+
 def format_date_header(parsed: dict, query: str) -> str:
-    """Build the header line: topic + date."""
-    topic = parsed.get("topic") or query
+    topic = escape_md(parsed.get("topic") or query)
     date_str = ""
     if parsed.get("date_from") and parsed.get("date_to"):
         if parsed["date_from"] == parsed["date_to"]:
@@ -56,17 +101,16 @@ def format_date_header(parsed: dict, query: str) -> str:
         else:
             date_str = f" — {parsed['date_from']} / {parsed['date_to']}"
     elif parsed.get("date_from"):
-        date_str = f" — {parsed['date_from']}+"
+        date_str = f" — {parsed['date_from']}\\+"
     elif parsed.get("date_to"):
         date_str = f" — ≤{parsed['date_to']}"
     return f"🔍 *{topic}{date_str}*"
 
 
 def format_source_line(i: int, r: dict) -> str:
-    """Format a single source line: [source — XX%] Title → link"""
     pct = round(r.get("display_score", r["score"]) * 100)
-    title = r["title"][:70] + ("…" if len(r["title"]) > 70 else "")
-    source = r["source"]
+    title = escape_md(r["title"][:70] + ("…" if len(r["title"]) > 70 else ""))
+    source = escape_md(r["source"])
     url = r["url"]
     enriched = " ✨" if r.get("is_enriched") else ""
     sentiment_map = {"pozitiv": "🟢", "neytral": "🔵", "riskli": "🔴"}
@@ -74,58 +118,39 @@ def format_source_line(i: int, r: dict) -> str:
     return f"{i}\\. `[{source} — {pct}%]`{sent}{enriched} [{title}]({url})"
 
 
-def format_categories(categories: list[dict]) -> str:
-    if not categories:
-        return ""
-    lines = ["📊 *Kateqoriyalar:*"]
-    for cat in categories[:5]:
-        lines.append(f"  • {cat.get('category', '')} — {cat.get('count', '')} məqalə")
-    return "\n".join(lines)
-
-
 def format_search_response(query: str, result: dict) -> list[str]:
-    """
-    Build the full response as a list of message parts (to handle Telegram length limits).
-    Format:
-      🔍 Topic — date
-      📋 Xülasə: ...
-      📰 Mənbələr: ...
-      🔑 Açar sözlər: topic
-    """
     parsed = result["parsed_query"]
     results = result["results"]
     summary = result.get("summary")
-    total = result["total_results"]
-    total_before = result.get("total_before_filter", total)
+    total_before = result.get("total_before_filter", len(results))
+    lang = parsed.get("language", "az")
+    lbl = get_labels(lang)
 
     messages = []
 
-    # ── Part 1: Header + Summary ──────────────────────────────────────────────
+    # ── Part 1: Header + found count + summary ────────────────────────────────
     header = format_date_header(parsed, query)
-    filter_note = f"_({total_before} nəticədən {total} ≥80% uyğunluq)_" if total_before > total else f"_{total} nəticə_"
+    found_line = f"_{lbl['found'].format(total=total_before, shown=len(results))}_"
 
-    part1 = f"{header}\n{filter_note}\n"
-
+    part1 = f"{header}\n{found_line}\n"
     if summary:
-        part1 += f"\n📋 *Xülasə:*\n{summary}"
+        part1 += f"\n{lbl['summary']}\n{escape_md(summary)}"
     elif not results:
-        part1 += "\n\n😕 Heç bir nəticə tapılmadı\\. Başqa sorğu cəhd edin\\."
+        part1 += f"\n\n{lbl['no_results']}"
         messages.append(part1)
         return messages
 
     messages.append(part1)
 
     # ── Part 2: Sources ───────────────────────────────────────────────────────
-    source_lines = ["\n📰 *Mənbələr:*"]
+    source_lines = [f"\n{lbl['sources']}"]
     for i, r in enumerate(results[:10], 1):
         source_lines.append(format_source_line(i, r))
-
     messages.append("\n".join(source_lines))
 
     # ── Part 3: Keywords ──────────────────────────────────────────────────────
-    topic = parsed.get("topic") or query
-    kw_line = f"\n🔑 *Açar sözlər:* `{topic}`"
-    messages.append(kw_line)
+    topic = escape_md(parsed.get("topic") or query)
+    messages.append(f"\n{lbl['keywords']} `{topic}`")
 
     return messages
 
@@ -133,18 +158,17 @@ def format_search_response(query: str, result: dict) -> list[str]:
 # ── Handlers ──────────────────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (
-        "👋 *Xoş gəldiniz! / Welcome!*\n\n"
-        "Mən *~21,000 Azərbaycan xəbər məqaləsi* üzərindən (10–15 may 2026 + gündəlik yenilənmə) "
-        "axtarış aparan AI assistantam\\.\n\n"
-        "*Nümunə sorğular:*\n"
-        "• _AccessBank haqqında xəbərlər_\n"
-        "• _SOCAR may 13 xəbərləri_\n"
-        "• _Banking regulation between May 12 and May 14_\n"
-        "• _Riskli iqtisadi xəbərlər_\n\n"
-        "*Komandalar:*\n"
-        "/keywords — son xəbərlərin kateqoriyaları\n"
-        "/stats — statistika\n"
-        "/help — bu mesaj"
+        "👋 *Xoş gəldiniz\\! / Добро пожаловать\\! / Welcome\\!*\n\n"
+        "I search through *~21,000 Azerbaijani news articles* \\(May 10–15, 2026 \\+ daily updates\\)\\.\n\n"
+        "*Examples / Примеры / Nümunələr:*\n"
+        "• `AccessBank haqqında xəbərlər`\n"
+        "• `Скажи про SOCAR что было 13 мая`\n"
+        "• `Banking regulation between May 12 and May 14`\n"
+        "• `Riskli iqtisadi xəbərlər`\n\n"
+        "*Commands:*\n"
+        "/keywords — top topic categories\n"
+        "/stats — statistics\n"
+        "/help — this message"
     )
     await update.message.reply_text(text, parse_mode="MarkdownV2", disable_web_page_preview=True)
 
@@ -154,23 +178,25 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def keywords_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("⏳ AI kateqoriyaları analiz edir…")
+    await update.message.reply_text("⏳ Analysing categories…")
     try:
         engine = get_engine()
         cats = engine.global_categories()
         if not cats:
-            await update.message.reply_text("Kateqoriya tapılmadı.")
+            await update.message.reply_text("No categories found.")
             return
-        lines = ["📊 *Son xəbərlərin kateqoriyaları:*\n"]
+        lines = ["📊 *Top Topic Categories:*\n"]
         for i, cat in enumerate(cats[:8], 1):
-            desc = cat.get("description", "")
-            lines.append(f"{i}\\. *{cat['category']}* — {cat.get('count', '?')} məqalə")
+            name = escape_md(cat.get("category", ""))
+            count = cat.get("count", "?")
+            desc = escape_md(cat.get("description", ""))
+            lines.append(f"{i}\\. *{name}* — {count}")
             if desc:
                 lines.append(f"   _{desc}_")
         await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
     except Exception as exc:
         log.error("Categories error: %s", exc, exc_info=True)
-        await update.message.reply_text(f"❌ Xəta: {exc}")
+        await update.message.reply_text(f"❌ Error: {exc}")
 
 
 async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -178,15 +204,15 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         engine = get_engine()
         s = engine.get_stats()
         text = (
-            "📊 *Statistika*\n\n"
-            f"📰 Cəmi məqalə: *{s.get('total_articles', '—')}*\n"
-            f"📦 Əsas dataset: *{s.get('base_articles', '—')}* \\(10–15 may\\)\n"
-            f"✨ Enriched: *{s.get('enriched_articles', '—')}* \\(gündəlik avtomatik\\)"
+            "📊 *Statistics*\n\n"
+            f"📰 Total: *{s.get('total_articles', '—')}*\n"
+            f"📦 Base dataset: *{s.get('base_articles', '—')}* \\(May 10–15\\)\n"
+            f"✨ Enriched: *{s.get('enriched_articles', '—')}* \\(daily auto\\)"
         )
         await update.message.reply_text(text, parse_mode="MarkdownV2")
     except Exception as exc:
         log.error("Stats error: %s", exc, exc_info=True)
-        await update.message.reply_text(f"❌ Xəta: {exc}")
+        await update.message.reply_text(f"❌ Error: {exc}")
 
 
 async def handle_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -195,7 +221,7 @@ async def handle_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     log.info("User [%s] query: %s", update.effective_user.id, query)
-    thinking_msg = await update.message.reply_text("🔍 Axtarılır…")
+    thinking_msg = await update.message.reply_text("🔍 …")
 
     try:
         engine = get_engine()
@@ -203,12 +229,11 @@ async def handle_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     except Exception as exc:
         log.error("Search error: %s", exc, exc_info=True)
         await thinking_msg.delete()
-        await update.message.reply_text(f"❌ Axtarış xətası: {exc}")
+        await update.message.reply_text(f"❌ Error: {exc}")
         return
 
     await thinking_msg.delete()
 
-    # Build and send formatted response
     parts = format_search_response(query, result)
     for part in parts:
         if part.strip():
@@ -219,11 +244,68 @@ async def handle_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     disable_web_page_preview=True,
                 )
             except Exception as exc:
-                # Fallback: send as plain text if MarkdownV2 fails
                 log.warning("MarkdownV2 failed, sending plain: %s", exc)
-                plain = part.replace("\\.", ".").replace("\\(", "(").replace("\\)", ")")
+                plain = part
+                for ch in r"_*[]()~`>#+-=|{}.!\\":
+                    plain = plain.replace(f"\\{ch}", ch)
                 plain = plain.replace("*", "").replace("`", "").replace("_", "")
                 await update.message.reply_text(plain, disable_web_page_preview=True)
+
+    # Show more button if needed
+    remaining = result["results"][10:]
+    if remaining:
+        lang = result["parsed_query"].get("language", "az")
+        lbl = get_labels(lang)
+        context.user_data["remaining_results"] = remaining
+        context.user_data["result_offset"] = 10
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                lbl["more"].format(n=min(5, len(remaining))),
+                callback_data="show_more",
+            )
+        ]])
+        await update.message.reply_text(
+            f"📋 {len(remaining)} more",
+            reply_markup=keyboard,
+        )
+
+
+async def show_more_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    remaining = context.user_data.get("remaining_results", [])
+    offset = context.user_data.get("result_offset", 10)
+
+    if not remaining:
+        await query.edit_message_text("✅ Done.")
+        return
+
+    batch = remaining[:5]
+    context.user_data["remaining_results"] = remaining[5:]
+    context.user_data["result_offset"] = offset + 5
+
+    for i, r in enumerate(batch, start=offset + 1):
+        try:
+            await query.message.reply_text(
+                format_source_line(i, r),
+                parse_mode="MarkdownV2",
+                disable_web_page_preview=True,
+            )
+        except Exception:
+            await query.message.reply_text(
+                f"{i}. {r['title'][:80]} — {r['source']}",
+                disable_web_page_preview=True,
+            )
+
+    still_left = context.user_data["remaining_results"]
+    if still_left:
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton(f"Show {min(5, len(still_left))} more ▼", callback_data="show_more")
+        ]])
+        await query.message.reply_text(f"📋 {len(still_left)} more", reply_markup=keyboard)
+    else:
+        await query.edit_message_text("✅ All results shown.")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -239,6 +321,7 @@ def main() -> None:
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("keywords", keywords_cmd))
     app.add_handler(CommandHandler("stats", stats_cmd))
+    app.add_handler(CallbackQueryHandler(show_more_callback, pattern="^show_more$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_query))
 
     log.info("Bot is running.")
