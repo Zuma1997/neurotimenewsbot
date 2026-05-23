@@ -356,8 +356,8 @@ class NewsSearchEngine:
 
         return self.categorizer.global_categories(rows)
 
-    def get_categories(self) -> list[str]:
-        """Return distinct non-empty categories from the articles table."""
+    def get_categories(self, top_n: int = 20) -> list[str]:
+        """Return top-N most frequent categories from the articles table."""
         try:
             resp = (
                 self.sb.table("articles")
@@ -366,14 +366,12 @@ class NewsSearchEngine:
                 .execute()
             )
             rows = resp.data or []
-            # Collect unique, clean category names
-            seen = set()
-            cats = []
+
+            from collections import Counter
+            counter: Counter = Counter()
             for r in rows:
                 raw = (r.get("category") or "").strip()
-                # Strip leading/trailing commas, whitespace, quotes
                 c = raw.strip(",\t \"'")
-                # Skip messy values: multi-line, too long, contains HTML, numbers-only
                 if (
                     c
                     and "\n" not in c
@@ -383,11 +381,12 @@ class NewsSearchEngine:
                     and not c.startswith(",")
                     and not c.startswith("/")
                     and "<" not in c
-                    and c not in seen
                 ):
-                    seen.add(c)
-                    cats.append(c)
-            return sorted(cats)
+                    counter[c] += 1
+
+            # Return top-N by frequency, sorted alphabetically within top-N
+            top = [cat for cat, _ in counter.most_common(top_n)]
+            return sorted(top)
         except Exception as exc:
             log.error("get_categories error: %s", exc)
             return []
