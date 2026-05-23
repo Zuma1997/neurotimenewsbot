@@ -70,3 +70,12 @@ begin
     limit match_count;
 end;
 $$;
+
+-- Digests table for web dashboard display
+create table if not exists digests (
+    id bigint primary key generated always as identity,
+    date date unique not null,
+    article_count int default 0,
+    articles jsonb,
+    created_at timestamp with time zone default now()
+);

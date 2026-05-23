@@ -5,13 +5,13 @@ This repository contains the solution for the **Neurotime Hackathon Task: AI New
 ## Overview
 The system allows users to search through ~21,000 base news articles (May 10–15, 2026) plus **daily enriched articles** using natural language. It handles date ranges, topic extraction, and keyword analysis, and provides a **Telegram Bot** and a **Web Dashboard**.
 
-### 🌟 Key Differentiator: Daily Data Enrichment (n8n + GPT-4o)
-Our unique feature is the **Daily Data Enrichment Pipeline**. Every day at 09:00, an n8n workflow:
-1. Pulls fresh news from Google Alerts RSS feeds (keywords: bank, maliyyə, iqtisadiyyat, SOCAR, etc.).
-2. Passes articles to **GPT-4o** for relevance check, sentiment analysis (`pozitiv`, `neytral`, `riskli`), and Azerbaijani summarization.
-3. Upserts the enriched articles into Supabase with an `is_enriched = true` flag.
-4. Sends a daily digest email via Microsoft Outlook OAuth.
-*(See `docs/n8n_enrichment_pipeline.md` for details).*
+### 🌟 Key Differentiator: Daily Data Enrichment (Python + GitHub Actions + GPT-4o)
+Our unique feature is the **Daily Data Enrichment Pipeline**. Every day at 09:00 UTC, a GitHub Actions cron job runs `scripts/rss_enrichment.py`:
+1. Pulls fresh news from major Azerbaijani RSS feeds (Oxu.az, Trend.az, 1news.az, etc.).
+2. Deduplicates against existing articles in Supabase.
+3. Passes new articles to **GPT-4o** for relevance check, sentiment analysis (`pozitiv`, `neytral`, `riskli`), and Azerbaijani summarization.
+4. Generates embeddings and upserts the enriched articles into Supabase with an `is_enriched = true` flag.
+5. Saves the daily digest to Supabase (for the web dashboard) and sends a digest email via Microsoft Outlook OAuth.
 
 ### Architecture & Approach
 To comply with the cost constraints (under $10) and ensure high performance, we use a **Supabase pgvector hybrid search architecture**:
@@ -24,7 +24,7 @@ To comply with the cost constraints (under $10) and ensure high performance, we 
 - **Date-Aware Retrieval:** Understands "on May 13", "after May 12", etc.
 - **Telegram Bot:** Interactive, paginated results, `/keywords`, `/stats` commands, enriched-article badges and sentiment indicators.
 - **Web Dashboard (Bonus):** React frontend with FastAPI backend, relevance score badges, and keyword clouds.
-- **Daily Enrichment:** n8n pipeline adds fresh articles every morning with GPT-4o sentiment + Azerbaijani summaries.
+- **Daily Enrichment:** GitHub Actions pipeline adds fresh articles every morning with GPT-4o sentiment + Azerbaijani summaries.
 - **Cost-Efficient:** One-time embedding cost ~$0.50. Each search costs ~$0.0001 (only query parsing).
 
 ---
