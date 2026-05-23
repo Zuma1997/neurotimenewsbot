@@ -363,9 +363,8 @@ header {
 
 <script>
 // ── Config ────────────────────────────────────────────────────────────────────
-// Set this to your Railway API URL after deploying FastAPI backend
-// e.g. "https://your-app.railway.app"
-// Leave empty to use relative URLs (when served from same origin as backend)
+// API base URL — empty string means same origin (works when served by FastAPI)
+// Change to your deployed URL if hosting separately, e.g. "https://your-app.railway.app"
 const API_BASE = "";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

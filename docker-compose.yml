@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+
+  # FastAPI backend — serves /api/search, /api/stats, /api/keywords/global
+  # Also serves dashboard.html at http://localhost:8000/dashboard
+  api:
+    build: .
+    command: uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app/backend
+      - ./data:/app/data
+      - ./dashboard.html:/app/dashboard.html
+    restart: unless-stopped
+
+  # Telegram bot
+  bot:
+    build: .
+    command: python backend/bot.py
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app/backend
+      - ./data:/app/data
+    depends_on:
+      - api
+    restart: unless-stopped

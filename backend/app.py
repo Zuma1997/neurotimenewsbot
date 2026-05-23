@@ -88,12 +88,18 @@ def stats():
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-# ── Serve React frontend (after build) ───────────────────────────────────────
-FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
+# ── Serve dashboard.html ─────────────────────────────────────────────────────
+DASHBOARD = Path(__file__).parent.parent / "dashboard.html"
 
-if FRONTEND_DIST.exists():
-    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="assets")
+@app.get("/dashboard")
+@app.get("/dashboard.html")
+def serve_dashboard():
+    if DASHBOARD.exists():
+        return FileResponse(str(DASHBOARD))
+    raise HTTPException(status_code=404, detail="dashboard.html not found")
 
-    @app.get("/{full_path:path}")
-    def serve_spa(full_path: str):
-        return FileResponse(str(FRONTEND_DIST / "index.html"))
+@app.get("/")
+def root():
+    if DASHBOARD.exists():
+        return FileResponse(str(DASHBOARD))
+    return {"status": "ok", "message": "News Search API", "docs": "/docs"}

@@ -63,36 +63,44 @@ python scripts/load_to_supabase.py
 
 ---
 
-## Running the Project
+## Running the Project (Local Evaluation)
 
-### Option A: Telegram Bot
-To start the Telegram assistant:
+We have provided a `docker-compose.yml` to make it incredibly easy for judges to run the entire stack locally with a single command.
+
+### 1. Configure Environment
+Create a `.env` file in the root directory (you can copy `.env.example`) and fill in the required keys:
+```env
+OPENAI_API_KEY=sk-proj-...
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1...
+```
+
+### 2. Run via Docker Compose
+Run the following command in the project root:
 ```bash
+docker compose up --build
+```
+This single command will:
+1. Start the **FastAPI Backend** on port 8000.
+2. Serve the **Web Dashboard** at `http://localhost:8000`.
+3. Start the **Telegram Bot** in the background.
+
+### 3. Test the Solution
+- **Web Dashboard:** Open [http://localhost:8000](http://localhost:8000) in your browser.
+- **Telegram Bot:** Send a message to your configured bot (e.g., `Find news about AccessBank`, `/stats`, `/keywords`).
+
+### Alternative: Run via Python (Without Docker)
+If you prefer not to use Docker, you can run the services manually:
+```bash
+pip install -r requirements.txt
+
+# Start the API and Web Dashboard (Terminal 1)
+uvicorn backend.app:app --host 0.0.0.0 --port 8000
+
+# Start the Telegram Bot (Terminal 2)
 python backend/bot.py
 ```
-Then message your bot on Telegram and try queries like:
-- *"SOCAR haqqında xəbərlər"*
-- *"Banking regulation news between May 12 and May 14"*
-- `/keywords`
-
-### Option B: Web Interface
-To run the full web application (FastAPI backend + React frontend):
-
-1. Build the React frontend:
-```bash
-cd frontend
-npm install
-npm run build
-cd ..
-```
-
-2. Start the FastAPI server:
-```bash
-pip install fastapi uvicorn
-uvicorn backend.app:app --host 0.0.0.0 --port 8000
-```
-
-3. Open your browser at `http://localhost:8000`
 
 ---
 
