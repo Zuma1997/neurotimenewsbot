@@ -4,16 +4,18 @@ bot.py
 Telegram bot for the AI News Search Assistant.
 Multilingual: detects query language (az/ru/en) and responds in the same language.
 
-Response format:
-  🔍 Topic — date
-  (N results, M ≥80%)
-  📋 Xülasə / Резюме / Summary: [AI-generated]
-  📰 Mənbələr / Источники / Sources: [compact list]
-  🔑 Açar sözlər / Ключевые слова / Keywords: topic
+Commands:
+  /start, /help      - welcome message
+  /keywords          - top topic categories
+  /stats             - database statistics
+  /dailydemo         - demo daily digest for May 13, 2026
+  /subscribe         - subscribe to daily digest (09:00 UTC)
+  /unsubscribe       - unsubscribe from daily digest
 """
 
 import logging
 import os
+from datetime import datetime, timezone, timedelta, time as dt_time
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -40,7 +42,7 @@ _engine: NewsSearchEngine | None = None
 def get_engine() -> NewsSearchEngine:
     global _engine
     if _engine is None:
-        log.info("Initialising search engine…")
+        log.info("Initialising search engine...")
         _engine = NewsSearchEngine()
     return _engine
 
@@ -128,7 +130,6 @@ def format_search_response(query: str, result: dict) -> list[str]:
 
     messages = []
 
-    # ── Part 1: Header + found count + summary ────────────────────────────────
     header = format_date_header(parsed, query)
     found_line = f"_{lbl['found'].format(total=total_before, shown=len(results))}_"
 
@@ -142,17 +143,130 @@ def format_search_response(query: str, result: dict) -> list[str]:
 
     messages.append(part1)
 
-    # ── Part 2: Sources ───────────────────────────────────────────────────────
     source_lines = [f"\n{lbl['sources']}"]
     for i, r in enumerate(results[:10], 1):
         source_lines.append(format_source_line(i, r))
     messages.append("\n".join(source_lines))
 
-    # ── Part 3: Keywords ──────────────────────────────────────────────────────
     topic = escape_md(parsed.get("topic") or query)
     messages.append(f"\n{lbl['keywords']} `{topic}`")
 
     return messages
+
+
+# ── Daily Digest ──────────────────────────────────────────────────────────────
+
+DAILY_DIGEST_PROMPT = """Sən Azərbaycan xəbər monitorinq sisteminin baş analitikisən.
+
+Aşağıda {date} tarixində dərc edilmiş {n} xəbər məqaləsi var.
+Hər məqalənin kateqoriyası və sentimentallığı göstərilib.
+
+Məqalələr:
+{articles}
+
+Aşağıdakı formata uyğun olaraq gündəlik hesabat hazırla:
+
+1. ÜMUMİ XÜLASƏ (3-4 cümlə): Günün ən önəmli hadisələrini əhatə edən qısa xülasə
+
+2. KATEQORİYALAR ÜZRƏ BAXIŞ: Hər aktiv kateqoriya üçün 1-2 cümləlik qısa icmal
+
+3. POZİTİV XƏBƏRLƏR 🟢: Ən yaxşı 3 xəbər (başlıq + qısa izah)
+
+4. RİSKLİ XƏBƏRLƏR 🔴: Ən narahatçılıq doğuran 3 xəbər (başlıq + qısa izah)
+
+5. STATİSTİKA: Pozitiv: X | Neytral: X | Riskli: X
+
+Yalnız hesabat mətnini qaytar, izahat yox."""
+
+
+async def generate_daily_digest(date_str: str) -> str | None:
+    """Generate a full daily digest for a given date (YYYY-MM-DD)."""
+    from openai import OpenAI
+    engine = get_engine()
+    oai = OpenAI(
+        api_key=os.getenv("OPENAI_API_KEY"),
+        base_url="https://api.openai.com/v1"
+    )
+
+    try:
+        resp = (
+            engine.sb.table("articles")
+            .select("title, category, sentiment")
+            .gte("created_at", date_str)
+            .lte("created_at", date_str + "T23:59:59")
+            .order("created_at")
+            .limit(80)
+            .execute()
+        )
+        rows = resp.data or []
+    except Exception as exc:
+        log.error("Daily digest DB error: %s", exc)
+        return None
+
+    if not rows:
+        return None
+
+    articles_text = "\n".join(
+        f"{i+1}. [{r.get('category','?')}] [{r.get('sentiment','?')}] {r.get('title','')}"
+        for i, r in enumerate(rows)
+    )
+
+    pos = sum(1 for r in rows if r.get("sentiment") == "pozitiv")
+    neu = sum(1 for r in rows if r.get("sentiment") == "neytral")
+    risk = sum(1 for r in rows if r.get("sentiment") == "riskli")
+
+    prompt = DAILY_DIGEST_PROMPT.format(
+        date=date_str,
+        n=len(rows),
+        articles=articles_text,
+    )
+
+    try:
+        gpt_resp = oai.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4,
+            max_tokens=1200,
+        )
+        digest_text = gpt_resp.choices[0].message.content.strip()
+        header = (
+            f"📅 *{escape_md(date_str)} — Gündəlik Xəbər Hesabatı*\n"
+            f"_📊 {len(rows)} məqalə \\| 🟢 {pos} pozitiv \\| 🔵 {neu} neytral \\| 🔴 {risk} riskli_\n\n"
+        )
+        return header + escape_md(digest_text)
+    except Exception as exc:
+        log.error("Daily digest GPT error: %s", exc)
+        return None
+
+
+async def _send_digest_message(target, digest: str) -> None:
+    """Send digest text, splitting if needed, with MarkdownV2 fallback."""
+    chunks = []
+    if len(digest) <= 4000:
+        chunks = [digest]
+    else:
+        parts = digest.split("\n\n")
+        chunk = ""
+        for part in parts:
+            if len(chunk) + len(part) + 2 < 3800:
+                chunk += part + "\n\n"
+            else:
+                if chunk:
+                    chunks.append(chunk.strip())
+                chunk = part + "\n\n"
+        if chunk.strip():
+            chunks.append(chunk.strip())
+
+    for chunk in chunks:
+        try:
+            await target.reply_text(chunk, parse_mode="MarkdownV2",
+                                    disable_web_page_preview=True)
+        except Exception:
+            plain = chunk
+            for ch in r"_*[]()~`>#+-=|{}.!\\":
+                plain = plain.replace(f"\\{ch}", ch)
+            plain = plain.replace("*", "").replace("`", "").replace("_", "")
+            await target.reply_text(plain, disable_web_page_preview=True)
 
 
 # ── Handlers ──────────────────────────────────────────────────────────────────
@@ -168,6 +282,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "*Commands:*\n"
         "/keywords — top topic categories\n"
         "/stats — statistics\n"
+        "/dailydemo — demo daily digest \\(May 13\\)\n"
+        "/subscribe — daily digest at 09:00 UTC\n"
+        "/unsubscribe — stop daily digest\n"
         "/help — this message"
     )
     await update.message.reply_text(text, parse_mode="MarkdownV2", disable_web_page_preview=True)
@@ -215,6 +332,100 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"❌ Error: {exc}")
 
 
+async def dailydemo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show a demo daily digest for May 13, 2026."""
+    msg = await update.message.reply_text(
+        "⏳ Gündəlik hesabat hazırlanır\\.\\.\\. \\(\\~20 san\\)",
+        parse_mode="MarkdownV2"
+    )
+    digest = await generate_daily_digest("2026-05-13")
+    await msg.delete()
+    if not digest:
+        await update.message.reply_text(
+            "❌ 2026\\-05\\-13 tarixi üçün məlumat tapilmadı\\.",
+            parse_mode="MarkdownV2"
+        )
+        return
+    await _send_digest_message(update.message, digest)
+
+
+async def subscribe_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Subscribe to daily digest."""
+    chat_id = update.effective_chat.id
+    subs = context.bot_data.setdefault("subscribers", set())
+    subs.add(chat_id)
+    await update.message.reply_text(
+        "✅ *Gündəlik hesabata abunə oldunuz\\!*\n"
+        "_Hər gün saat 09:00 UTC\\-də xəbər hesabatı göndəriləcək\\._\n\n"
+        "Abunəliyi dayandırmaq üçün: /unsubscribe",
+        parse_mode="MarkdownV2"
+    )
+
+
+async def unsubscribe_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Unsubscribe from daily digest."""
+    chat_id = update.effective_chat.id
+    subs = context.bot_data.get("subscribers", set())
+    subs.discard(chat_id)
+    await update.message.reply_text(
+        "❌ Abunəlikdən çıxdınız\\. Artıq gündəlik hesabat göndərilməyəcək\\.",
+        parse_mode="MarkdownV2"
+    )
+
+
+async def send_daily_digest_to_all(context) -> None:
+    """Job: send daily digest to all subscribed users at 09:00 UTC."""
+    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+    log.info("Sending daily digest for %s", yesterday)
+
+    digest = await generate_daily_digest(yesterday)
+    if not digest:
+        log.warning("No digest generated for %s", yesterday)
+        return
+
+    subscribers = context.bot_data.get("subscribers", set())
+    if not subscribers:
+        log.info("No subscribers for daily digest")
+        return
+
+    for chat_id in subscribers:
+        try:
+            chunks = []
+            if len(digest) <= 4000:
+                chunks = [digest]
+            else:
+                parts = digest.split("\n\n")
+                chunk = ""
+                for part in parts:
+                    if len(chunk) + len(part) + 2 < 3800:
+                        chunk += part + "\n\n"
+                    else:
+                        if chunk:
+                            chunks.append(chunk.strip())
+                        chunk = part + "\n\n"
+                if chunk.strip():
+                    chunks.append(chunk.strip())
+
+            for chunk in chunks:
+                try:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=chunk,
+                        parse_mode="MarkdownV2",
+                        disable_web_page_preview=True,
+                    )
+                except Exception:
+                    plain = chunk
+                    for ch in r"_*[]()~`>#+-=|{}.!\\":
+                        plain = plain.replace(f"\\{ch}", ch)
+                    plain = plain.replace("*", "").replace("`", "").replace("_", "")
+                    await context.bot.send_message(chat_id=chat_id, text=plain,
+                                                   disable_web_page_preview=True)
+            log.info("Digest sent to %s", chat_id)
+        except Exception as exc:
+            log.warning("Failed to send digest to %s: %s", chat_id, exc)
+
+
 async def handle_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.message.text.strip()
     if not query:
@@ -251,7 +462,6 @@ async def handle_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 plain = plain.replace("*", "").replace("`", "").replace("_", "")
                 await update.message.reply_text(plain, disable_web_page_preview=True)
 
-    # Show more button if needed
     remaining = result["results"][10:]
     if remaining:
         lang = result["parsed_query"].get("language", "az")
@@ -314,15 +524,26 @@ def main() -> None:
     if not token:
         raise EnvironmentError("TELEGRAM_BOT_TOKEN is not set")
 
-    log.info("Starting Telegram bot…")
+    log.info("Starting Telegram bot...")
     app = Application.builder().token(token).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("keywords", keywords_cmd))
     app.add_handler(CommandHandler("stats", stats_cmd))
+    app.add_handler(CommandHandler("dailydemo", dailydemo_cmd))
+    app.add_handler(CommandHandler("subscribe", subscribe_cmd))
+    app.add_handler(CommandHandler("unsubscribe", unsubscribe_cmd))
     app.add_handler(CallbackQueryHandler(show_more_callback, pattern="^show_more$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_query))
+
+    # Schedule daily digest at 09:00 UTC
+    app.job_queue.run_daily(
+        send_daily_digest_to_all,
+        time=dt_time(hour=9, minute=0, second=0),
+        name="daily_digest",
+    )
+    log.info("Daily digest scheduled at 09:00 UTC")
 
     log.info("Bot is running.")
     app.run_polling(

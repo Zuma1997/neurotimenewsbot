@@ -1,6 +1,7 @@
 supabase>=2.3.0
 openai>=1.0.0
-python-telegram-bot==22.7
+python-telegram-bot[job-queue]==22.7
+apscheduler>=3.10.0
 pandas>=2.0.0
 numpy>=1.24.0
 fastapi>=0.100.0
