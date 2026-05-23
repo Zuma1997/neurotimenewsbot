@@ -88,6 +88,32 @@ def stats():
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@app.get("/api/categories")
+def categories():
+    """Return distinct category list from the articles table."""
+    try:
+        return {"categories": get_engine().get_categories()}
+    except Exception as exc:
+        log.error("Categories error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/digest")
+def daily_digest(
+    date_from: str = Query(..., description="Start date YYYY-MM-DD"),
+    date_to: str = Query(None, description="End date YYYY-MM-DD (defaults to date_from)"),
+):
+    """Generate an AI-powered daily news digest for a date or date range."""
+    if not date_to:
+        date_to = date_from
+    log.info("Digest request: %s — %s", date_from, date_to)
+    try:
+        return get_engine().get_daily_digest(date_from, date_to)
+    except Exception as exc:
+        log.error("Digest error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 # ── Serve dashboard.html ─────────────────────────────────────────────────────
 DASHBOARD = Path(__file__).parent.parent / "dashboard.html"
 

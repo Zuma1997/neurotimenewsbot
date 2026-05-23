@@ -356,6 +356,103 @@ class NewsSearchEngine:
 
         return self.categorizer.global_categories(rows)
 
+    def get_categories(self) -> list[str]:
+        """Return distinct non-empty categories from the articles table."""
+        try:
+            resp = (
+                self.sb.table("articles")
+                .select("category")
+                .neq("category", "")
+                .execute()
+            )
+            rows = resp.data or []
+            # Collect unique, clean category names
+            seen = set()
+            cats = []
+            for r in rows:
+                raw = (r.get("category") or "").strip()
+                # Strip leading/trailing commas, whitespace, quotes
+                c = raw.strip(",\t \"'")
+                # Skip messy values: multi-line, too long, contains HTML, numbers-only
+                if (
+                    c
+                    and "\n" not in c
+                    and "\t" not in c
+                    and len(c) >= 2
+                    and len(c) < 35
+                    and not c.startswith(",")
+                    and not c.startswith("/")
+                    and "<" not in c
+                    and c not in seen
+                ):
+                    seen.add(c)
+                    cats.append(c)
+            return sorted(cats)
+        except Exception as exc:
+            log.error("get_categories error: %s", exc)
+            return []
+
+    def get_daily_digest(self, date_from: str, date_to: str) -> dict:
+        """
+        Generate an AI summary of what happened on a given date/range.
+        Fetches top articles for the period and summarises them with GPT-4o.
+        """
+        try:
+            # Fetch up to 30 articles for the date range
+            resp = (
+                self.sb.table("articles")
+                .select("title, content, source, created_at, category")
+                .gte("created_at", date_from)
+                .lte("created_at", date_to + "T23:59:59")
+                .order("created_at", desc=False)
+                .limit(30)
+                .execute()
+            )
+            rows = resp.data or []
+        except Exception as exc:
+            log.error("get_daily_digest DB error: %s", exc)
+            return {"summary": None, "article_count": 0}
+
+        if not rows:
+            return {"summary": None, "article_count": 0}
+
+        # Build article list for GPT
+        articles_text = "\n\n".join(
+            f"{i+1}. [{r.get('category','')}] {r.get('title','')}\n   "
+            f"{str(r.get('content',''))[:200]}"
+            for i, r in enumerate(rows)
+        )
+
+        date_label = date_from if date_from == date_to else f"{date_from} — {date_to}"
+
+        prompt = f"""You are a senior news analyst for an Azerbaijani media monitoring system.
+
+Below are {len(rows)} news articles published on {date_label}.
+
+Write a concise daily news digest in AZERBAIJANI language (4-6 sentences).
+Cover the most important events across politics, economy, society, and other key topics.
+Mention specific facts, names, and numbers where available.
+Do NOT start with generic phrases like 'Bu gün...' — go straight to the news.
+
+Articles:
+{articles_text}
+
+Return ONLY the digest text, nothing else."""
+
+        try:
+            resp = self.oai.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.4,
+                max_tokens=500,
+            )
+            summary = resp.choices[0].message.content.strip()
+            log.info("Daily digest generated for %s (%d articles)", date_label, len(rows))
+            return {"summary": summary, "article_count": len(rows), "date": date_label}
+        except Exception as exc:
+            log.error("Daily digest GPT error: %s", exc)
+            return {"summary": None, "article_count": len(rows)}
+
     def get_stats(self) -> dict:
         try:
             total = self.sb.table("articles").select("id", count="exact").execute()

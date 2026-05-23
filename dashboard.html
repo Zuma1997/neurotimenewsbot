@@ -256,6 +256,50 @@ header {
   border-radius: 10px; color: var(--neg); font-size: 13px; margin-bottom: 16px;
 }
 
+/* ── Daily Digest ── */
+.digest-card {
+  background: linear-gradient(135deg, #6c63ff12, #9d94ff08);
+  border: 1px solid #6c63ff30;
+  border-radius: 14px;
+  padding: 20px 22px;
+  margin-bottom: 20px;
+  animation: fadeUp 0.4s ease both;
+}
+.digest-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px;
+}
+.digest-title {
+  font-family: var(--font-head); font-size: 12px; font-weight: 700;
+  color: var(--accent2); text-transform: uppercase; letter-spacing: 0.1em;
+}
+.digest-date {
+  font-size: 12px; color: var(--muted);
+}
+.digest-text {
+  font-size: 14px; color: var(--text); line-height: 1.7;
+}
+.digest-loading {
+  font-size: 13px; color: var(--muted); font-style: italic;
+}
+
+/* ── Category filter ── */
+.cat-filter-wrap {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  padding: 0 0 16px;
+}
+.cat-chip {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 20px; padding: 5px 14px;
+  font-size: 12px; color: var(--muted); cursor: pointer;
+  transition: all 0.15s; white-space: nowrap;
+}
+.cat-chip:hover { border-color: var(--accent); color: var(--accent2); }
+.cat-chip.active {
+  background: #6c63ff22; border-color: var(--accent);
+  color: var(--accent2); font-weight: 600;
+}
+
 @media (max-width: 768px) {
   .main-grid { grid-template-columns: 1fr; }
   .stats-row { display: none; }
@@ -309,11 +353,18 @@ header {
   <!-- DATE FILTERS -->
   <div class="filters-row">
     <span class="filter-label">Tarix:</span>
-    <input class="date-input" type="date" id="date-from">
+    <input class="date-input" type="date" id="date-from" onchange="onDateChange()">
     <span class="filter-label">→</span>
-    <input class="date-input" type="date" id="date-to">
+    <input class="date-input" type="date" id="date-to" onchange="onDateChange()">
     <button class="btn btn-ghost" style="padding:8px 16px;font-size:13px" onclick="clearDates()">Təmizlə</button>
   </div>
+
+  <!-- DAILY DIGEST (appears when date is selected) -->
+  <div id="digest-area"></div>
+
+  <!-- CATEGORY FILTER -->
+  <div class="cat-filter-label" style="font-family:var(--font-head);font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;display:none" id="cat-filter-label">Kateqoriya:</div>
+  <div class="cat-filter-wrap" id="cat-filter-wrap"></div>
 
   <!-- LOADING BAR -->
   <div class="loading-bar" id="loading-bar"></div>
@@ -549,9 +600,121 @@ function setQuery(q) {
 function clearDates() {
   document.getElementById("date-from").value = "";
   document.getElementById("date-to").value = "";
+  document.getElementById("digest-area").innerHTML = "";
 }
 
-// ── Load stats on page load ───────────────────────────────────────────────────
+// ── Category filter ─────────────────────────────────────────────────────────────────────────────
+let activeCategory = null;
+
+async function loadCategories() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/categories`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const cats = data.categories || [];
+    if (!cats.length) return;
+
+    const wrap = document.getElementById("cat-filter-wrap");
+    const label = document.getElementById("cat-filter-label");
+    label.style.display = "block";
+
+    // "All" chip
+    wrap.innerHTML = `<div class="cat-chip active" onclick="selectCategory(null, this)">Все</div>`
+      + cats.map(c => `<div class="cat-chip" onclick="selectCategory('${c.replace(/'/g, "\\'")}'  , this)">${c}</div>`).join("");
+  } catch { /* silently fail */ }
+}
+
+function selectCategory(cat, el) {
+  activeCategory = cat;
+  // Update active chip
+  document.querySelectorAll(".cat-chip").forEach(c => c.classList.remove("active"));
+  el.classList.add("active");
+  // Re-run search if there's a query
+  const q = document.getElementById("query-input").value.trim();
+  if (q) doSearch();
+}
+
+// ── Daily Digest ───────────────────────────────────────────────────────────────────────────────────
+let digestDebounce = null;
+
+function onDateChange() {
+  const dateFrom = document.getElementById("date-from").value;
+  const dateTo   = document.getElementById("date-to").value;
+
+  if (!dateFrom) {
+    document.getElementById("digest-area").innerHTML = "";
+    return;
+  }
+
+  // Show loading state immediately
+  const dateLabel = dateTo && dateTo !== dateFrom ? `${dateFrom} — ${dateTo}` : dateFrom;
+  document.getElementById("digest-area").innerHTML = `
+    <div class="digest-card">
+      <div class="digest-header">
+        <div class="digest-title">📅 Gündəlik Xələsə</div>
+        <div class="digest-date">${dateLabel}</div>
+      </div>
+      <div class="digest-loading">⏳ AI xələsə hazırlayır…</div>
+    </div>`;
+
+  // Debounce to avoid too many API calls while typing
+  clearTimeout(digestDebounce);
+  digestDebounce = setTimeout(() => loadDigest(dateFrom, dateTo || dateFrom), 600);
+}
+
+async function loadDigest(dateFrom, dateTo) {
+  try {
+    const url = `${API_BASE}/api/digest?date_from=${dateFrom}&date_to=${dateTo}`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+
+    const dateLabel = dateTo !== dateFrom ? `${dateFrom} — ${dateTo}` : dateFrom;
+    const digestArea = document.getElementById("digest-area");
+
+    if (!data.summary) {
+      digestArea.innerHTML = `
+        <div class="digest-card">
+          <div class="digest-header">
+            <div class="digest-title">📅 Gündəlik Xələsə</div>
+            <div class="digest-date">${dateLabel}</div>
+          </div>
+          <div class="digest-text" style="color:var(--muted)">Bu tarix üçün xəbər tapilmadı.</div>
+        </div>`;
+      return;
+    }
+
+    digestArea.innerHTML = `
+      <div class="digest-card">
+        <div class="digest-header">
+          <div class="digest-title">📅 Gündəlik Xələsə</div>
+          <div class="digest-date">${dateLabel} · ${data.article_count} məqalə</div>
+        </div>
+        <div class="digest-text">${data.summary}</div>
+      </div>`;
+  } catch (err) {
+    document.getElementById("digest-area").innerHTML = "";
+  }
+}
+
+// ── Update search to include category filter ────────────────────────────────────────────────
+const _origDoSearch = doSearch;
+// Patch doSearch to append category to query if active
+const doSearchWithCat = async function() {
+  if (activeCategory) {
+    const input = document.getElementById("query-input");
+    const q = input.value.trim();
+    // Temporarily append category to query
+    const savedQ = q;
+    input.value = q ? `${q} kateqoriya:${activeCategory}` : activeCategory;
+    await _origDoSearch();
+    input.value = savedQ;
+  } else {
+    await _origDoSearch();
+  }
+};
+
+// ── Load stats on page load ─────────────────────────────────────────────────────
 async function loadStats() {
   try {
     const resp = await fetch(`${API_BASE}/api/stats`);
@@ -568,8 +731,9 @@ async function loadStats() {
   } catch { /* silently fail */ }
 }
 
-// ── Init ──────────────────────────────────────────────────────────────────────
+// ── Init ───────────────────────────────────────────────────────────────────────────────────
 loadStats();
+loadCategories();
 </script>
 </body>
 </html>
