@@ -15,7 +15,6 @@ services:
       - PYTHONPATH=/app/backend
     volumes:
       - ./backend:/app/backend
-      - ./data:/app/data
       - ./dashboard.html:/app/dashboard.html
     restart: unless-stopped
 
@@ -29,7 +28,6 @@ services:
       - PYTHONPATH=/app/backend
     volumes:
       - ./backend:/app/backend
-      - ./data:/app/data
     depends_on:
       - api
     restart: unless-stopped

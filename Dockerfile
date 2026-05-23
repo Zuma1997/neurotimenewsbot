@@ -6,10 +6,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy project files
+# Copy project files (data/ is NOT in git — it lives in Supabase)
 COPY backend/ ./backend/
 COPY scripts/ ./scripts/
-COPY data/ ./data/
 COPY dashboard.html ./dashboard.html
 
 # Set PYTHONPATH so backend modules can import each other
