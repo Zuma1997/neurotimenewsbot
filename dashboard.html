@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neurotime — Xəbər Axtarışı</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:       #0a0a0f;
+  --surface:  #111118;
+  --surface2: #18181f;
+  --border:   #ffffff0f;
+  --border2:  #ffffff18;
+  --text:     #e8e8f0;
+  --muted:    #7070a0;
+  --accent:   #6c63ff;
+  --accent2:  #9d94ff;
+  --pos:      #2ecc8a;
+  --neg:      #ff5a5a;
+  --neu:      #f0a04a;
+  --font-head: 'Syne', sans-serif;
+  --font-body: 'DM Sans', sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none; z-index: 0; opacity: 0.4;
+}
+
+.shell { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+header {
+  padding: 32px 0 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+.logo {
+  font-family: var(--font-head);
+  font-size: 22px; font-weight: 800; letter-spacing: -0.5px;
+  color: var(--text);
+  display: flex; align-items: center; gap: 10px;
+}
+.logo-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 12px var(--accent);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.6;transform:scale(0.85)} }
+
+.stats-row { display: flex; gap: 24px; }
+.stat { text-align: right; }
+.stat-val { font-family: var(--font-head); font-size: 18px; font-weight: 700; color: var(--accent2); }
+.stat-lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+
+.search-wrap { padding: 32px 0 24px; position: relative; }
+.search-label {
+  font-family: var(--font-head);
+  font-size: 13px; font-weight: 600;
+  color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: 12px;
+}
+.search-row { display: flex; gap: 10px; }
+.search-input {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  padding: 14px 20px;
+  font-family: var(--font-body);
+  font-size: 16px;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.search-input::placeholder { color: var(--muted); }
+.search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px #6c63ff22; }
+.btn {
+  background: var(--accent);
+  color: #fff; border: none; border-radius: 12px;
+  padding: 14px 24px;
+  font-family: var(--font-head); font-size: 14px; font-weight: 700;
+  cursor: pointer; transition: background 0.2s, transform 0.1s; white-space: nowrap;
+}
+.btn:hover { background: #7d74ff; }
+.btn:active { transform: scale(0.97); }
+.btn:disabled { background: #444; cursor: not-allowed; }
+.btn-ghost {
+  background: var(--surface2); border: 1px solid var(--border2); color: var(--text);
+}
+.btn-ghost:hover { background: var(--surface); border-color: var(--accent); }
+
+.chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.chip {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 20px; padding: 5px 14px;
+  font-size: 13px; color: var(--muted); cursor: pointer; transition: all 0.15s;
+}
+.chip:hover { border-color: var(--accent); color: var(--accent2); }
+
+.filters-row {
+  display: flex; gap: 10px; align-items: center;
+  padding: 0 0 20px; flex-wrap: wrap;
+}
+.date-input {
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 8px; padding: 8px 14px;
+  font-family: var(--font-body); font-size: 13px; color: var(--text);
+  outline: none; cursor: pointer;
+}
+.date-input:focus { border-color: var(--accent); }
+.filter-label { font-size: 13px; color: var(--muted); }
+
+.main-grid {
+  display: grid; grid-template-columns: 1fr 280px;
+  gap: 24px; padding-bottom: 48px;
+}
+
+.results-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px;
+}
+.results-title {
+  font-family: var(--font-head); font-size: 14px; font-weight: 600;
+  color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em;
+}
+.results-count {
+  font-family: var(--font-head); font-size: 13px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 20px; padding: 3px 12px; color: var(--accent2);
+}
+
+.article-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 20px 22px; margin-bottom: 10px;
+  transition: border-color 0.2s, transform 0.15s;
+  cursor: pointer; display: block; text-decoration: none;
+  animation: fadeUp 0.3s ease both;
+}
+.article-card:hover { border-color: var(--border2); transform: translateY(-2px); }
+@keyframes fadeUp {
+  from { opacity:0; transform: translateY(12px); }
+  to   { opacity:1; transform: translateY(0); }
+}
+
+.card-meta {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 8px; flex-wrap: wrap;
+}
+.badge {
+  font-size: 11px; font-weight: 500; border-radius: 6px;
+  padding: 2px 8px; text-transform: uppercase; letter-spacing: 0.05em;
+}
+.badge-pos  { background: #2ecc8a18; color: var(--pos); border: 1px solid #2ecc8a30; }
+.badge-neg  { background: #ff5a5a18; color: var(--neg); border: 1px solid #ff5a5a30; }
+.badge-neu  { background: #f0a04a18; color: var(--neu); border: 1px solid #f0a04a30; }
+.badge-new  { background: #6c63ff18; color: var(--accent2); border: 1px solid #6c63ff30; }
+.badge-cat  { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+
+.meta-dot { color: var(--border2); }
+.meta-source { font-size: 12px; color: var(--muted); }
+.meta-date   { font-size: 12px; color: var(--muted); }
+
+.sim-bar-wrap { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.sim-bar { width: 48px; height: 4px; background: var(--surface2); border-radius: 2px; overflow: hidden; }
+.sim-fill { height: 100%; background: var(--accent); border-radius: 2px; }
+.sim-val { font-size: 11px; color: var(--accent2); font-family: var(--font-head); }
+
+.card-title {
+  font-family: var(--font-head); font-size: 15px; font-weight: 600;
+  color: var(--text); margin-bottom: 6px; line-height: 1.4;
+}
+.card-snippet {
+  font-size: 13px; color: var(--muted); line-height: 1.55;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.card-summary {
+  margin-top: 8px; padding: 6px 10px;
+  background: #2ecc8a0a; border-left: 2px solid #2ecc8a40;
+  border-radius: 0 6px 6px 0;
+  font-size: 12px; color: #2ecc8a; font-style: italic; line-height: 1.4;
+}
+.card-link {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12px; color: var(--accent2); margin-top: 10px;
+  text-decoration: none; opacity: 0.8; transition: opacity 0.15s;
+}
+.card-link:hover { opacity: 1; }
+
+.sidebar { display: flex; flex-direction: column; gap: 16px; }
+.side-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 18px 20px;
+}
+.side-title {
+  font-family: var(--font-head); font-size: 12px; font-weight: 700;
+  color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: 14px;
+}
+
+.kw-list { display: flex; flex-direction: column; gap: 8px; }
+.kw-row { display: flex; align-items: center; gap: 8px; }
+.kw-rank { font-family: var(--font-head); font-size: 10px; color: var(--muted); min-width: 16px; }
+.kw-word { font-size: 13px; color: var(--text); flex: 1; }
+.kw-bar-wrap { width: 60px; height: 3px; background: var(--surface2); border-radius: 2px; }
+.kw-bar-fill { height: 100%; background: var(--accent); border-radius: 2px; opacity: 0.7; }
+.kw-count { font-size: 11px; color: var(--muted); font-family: var(--font-head); min-width: 28px; text-align: right; }
+
+.source-list { display: flex; flex-direction: column; gap: 10px; }
+.source-row { display: flex; align-items: center; justify-content: space-between; }
+.source-name { font-size: 13px; color: var(--text); }
+.source-count {
+  font-size: 11px; font-family: var(--font-head);
+  background: var(--surface2); border-radius: 10px; padding: 2px 8px; color: var(--accent2);
+}
+
+.cat-list { display: flex; flex-direction: column; gap: 10px; }
+.cat-row { display: flex; flex-direction: column; gap: 2px; }
+.cat-name { font-size: 13px; color: var(--text); font-weight: 500; }
+.cat-desc { font-size: 11px; color: var(--muted); line-height: 1.4; }
+.cat-count { font-size: 11px; color: var(--accent2); font-family: var(--font-head); }
+
+.toast {
+  position: fixed; bottom: 28px; right: 28px;
+  background: var(--surface2); border: 1px solid var(--accent);
+  border-radius: 12px; padding: 14px 20px;
+  font-size: 14px; color: var(--text);
+  box-shadow: 0 8px 32px #00000060;
+  transform: translateY(80px); opacity: 0;
+  transition: all 0.3s cubic-bezier(.34,1.56,.64,1); z-index: 100;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+
+.loading-bar {
+  height: 2px; background: linear-gradient(90deg, var(--accent), var(--accent2));
+  border-radius: 1px; width: 0%; transition: width 0.4s ease; margin-bottom: 16px;
+}
+
+.error-msg {
+  padding: 16px; background: #ff5a5a18; border: 1px solid #ff5a5a40;
+  border-radius: 10px; color: var(--neg); font-size: 13px; margin-bottom: 16px;
+}
+
+@media (max-width: 768px) {
+  .main-grid { grid-template-columns: 1fr; }
+  .stats-row { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo">
+      <div class="logo-dot"></div>
+      Neurotime
+    </div>
+    <div class="stats-row">
+      <div class="stat">
+        <div class="stat-val" id="total-count">—</div>
+        <div class="stat-lbl">Xəbər</div>
+      </div>
+      <div class="stat">
+        <div class="stat-val" id="enriched-count">—</div>
+        <div class="stat-lbl">Enriched</div>
+      </div>
+      <div class="stat">
+        <div class="stat-val">15+</div>
+        <div class="stat-lbl">Mənbə</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- SEARCH -->
+  <div class="search-wrap">
+    <div class="search-label">Xəbər axtar</div>
+    <div class="search-row">
+      <input class="search-input" id="query-input"
+        placeholder="məs: AccessBank may 12-14, SOCAR iqtisadiyyat, riskli bank xəbərləri..."
+        onkeydown="if(event.key==='Enter') doSearch()">
+      <button class="btn" id="search-btn" onclick="doSearch()">Axtar →</button>
+    </div>
+    <div class="chips">
+      <div class="chip" onclick="setQuery('AccessBank haqqında xəbərlər')">AccessBank</div>
+      <div class="chip" onclick="setQuery('SOCAR iqtisadiyyat')">SOCAR iqtisadiyyat</div>
+      <div class="chip" onclick="setQuery('Mərkəzi Bank faiz')">Mərkəzi Bank faiz</div>
+      <div class="chip" onclick="setQuery('riskli bank xəbərləri')">Riskli bank xəbərləri</div>
+      <div class="chip" onclick="setQuery('may 13 siyasət')">May 13 siyasət</div>
+    </div>
+  </div>
+
+  <!-- DATE FILTERS -->
+  <div class="filters-row">
+    <span class="filter-label">Tarix:</span>
+    <input class="date-input" type="date" id="date-from">
+    <span class="filter-label">→</span>
+    <input class="date-input" type="date" id="date-to">
+    <button class="btn btn-ghost" style="padding:8px 16px;font-size:13px" onclick="clearDates()">Təmizlə</button>
+  </div>
+
+  <!-- LOADING BAR -->
+  <div class="loading-bar" id="loading-bar"></div>
+
+  <!-- MAIN GRID -->
+  <div class="main-grid">
+
+    <!-- RESULTS -->
+    <div>
+      <div class="results-header">
+        <div class="results-title">Nəticələr</div>
+        <div class="results-count" id="result-count">Axtar düyməsinə basın</div>
+      </div>
+      <div id="error-area"></div>
+      <div id="results-list">
+        <div style="padding:48px;text-align:center;color:var(--muted)">
+          Yuxarıdakı axtarış çubuğuna sorğu daxil edin
+        </div>
+      </div>
+    </div>
+
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+
+      <!-- CATEGORIES -->
+      <div class="side-card">
+        <div class="side-title">📊 Mövzu Kateqoriyaları</div>
+        <div class="cat-list" id="cat-list">
+          <div style="font-size:12px;color:var(--muted)">Axtarış etdikdən sonra kateqoriyalar göstəriləcək</div>
+        </div>
+      </div>
+
+      <!-- SOURCES -->
+      <div class="side-card">
+        <div class="side-title">🌐 Mənbələr</div>
+        <div class="source-list" id="source-list">
+          <div style="font-size:12px;color:var(--muted)">Yüklənir...</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────────
+// Set this to your Railway API URL after deploying FastAPI backend
+// e.g. "https://your-app.railway.app"
+// Leave empty to use relative URLs (when served from same origin as backend)
+const API_BASE = "";
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function sentimentBadge(s) {
+  if (!s) return '';
+  if (s === "pozitiv") return '<span class="badge badge-pos">Pozitiv</span>';
+  if (s === "riskli")  return '<span class="badge badge-neg">Riskli</span>';
+  return '<span class="badge badge-neu">Neytral</span>';
+}
+
+function formatDate(iso) {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString("az-AZ", { day: "2-digit", month: "short" });
+  } catch { return iso.slice(0, 10); }
+}
+
+function loadingStart() {
+  const bar = document.getElementById("loading-bar");
+  bar.style.transition = "width 0.4s ease";
+  bar.style.width = "70%";
+  document.getElementById("search-btn").disabled = true;
+  document.getElementById("search-btn").textContent = "Axtarılır…";
+}
+
+function loadingEnd() {
+  const bar = document.getElementById("loading-bar");
+  bar.style.width = "100%";
+  setTimeout(() => {
+    bar.style.transition = "none";
+    bar.style.width = "0%";
+    setTimeout(() => bar.style.transition = "width 0.4s ease", 50);
+  }, 400);
+  document.getElementById("search-btn").disabled = false;
+  document.getElementById("search-btn").textContent = "Axtar →";
+}
+
+function showError(msg) {
+  document.getElementById("error-area").innerHTML =
+    `<div class="error-msg">⚠️ ${msg}</div>`;
+}
+
+function clearError() {
+  document.getElementById("error-area").innerHTML = "";
+}
+
+function showToast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 3200);
+}
+
+// ── Render functions ──────────────────────────────────────────────────────────
+function renderArticles(articles) {
+  const list = document.getElementById("results-list");
+  document.getElementById("result-count").textContent = articles.length + " tapıldı";
+
+  if (!articles.length) {
+    list.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted)">Nəticə tapılmadı. Başqa sorğu cəhd edin.</div>';
+    return;
+  }
+
+  list.innerHTML = articles.map((a, i) => `
+    <a class="article-card" href="${a.url || a.link || '#'}" target="_blank" style="animation-delay:${i * 0.04}s">
+      <div class="card-meta">
+        ${sentimentBadge(a.sentiment)}
+        ${a.is_enriched ? '<span class="badge badge-new">✨ Enriched</span>' : ''}
+        <span class="badge badge-cat">${a.category || ''}</span>
+        <span class="meta-dot">·</span>
+        <span class="meta-source">${a.source || ''}</span>
+        <span class="meta-dot">·</span>
+        <span class="meta-date">${formatDate(a.published_at || a.date)}</span>
+        <div class="sim-bar-wrap">
+          <div class="sim-bar"><div class="sim-fill" style="width:${Math.round((a.score || a.similarity || 0) * 100)}%"></div></div>
+          <span class="sim-val">${Math.round((a.score || a.similarity || 0) * 100)}%</span>
+        </div>
+      </div>
+      <div class="card-title">${a.title || ''}</div>
+      <div class="card-snippet">${a.snippet || ''}</div>
+      ${a.summary_az ? `<div class="card-summary">${a.summary_az}</div>` : ''}
+      <span class="card-link">Oxu → ${a.source || ''}</span>
+    </a>
+  `).join("");
+}
+
+function renderCategories(cats) {
+  const el = document.getElementById("cat-list");
+  if (!cats || !cats.length) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--muted)">Kateqoriya tapılmadı</div>';
+    return;
+  }
+  el.innerHTML = cats.slice(0, 7).map((c, i) => `
+    <div class="cat-row">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="font-size:10px;color:var(--muted);font-family:var(--font-head);min-width:14px">${i+1}</span>
+        <span class="cat-name">${c.category}</span>
+        <span class="cat-count">${c.count}</span>
+      </div>
+      ${c.description ? `<div class="cat-desc">${c.description}</div>` : ''}
+    </div>
+  `).join("");
+}
+
+function renderSources(sources) {
+  const el = document.getElementById("source-list");
+  if (!sources || !sources.length) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--muted)">—</div>';
+    return;
+  }
+  el.innerHTML = sources.map(s => `
+    <div class="source-row">
+      <span class="source-name">${s.name || s.source || ''}</span>
+      <span class="source-count">${(s.cnt || s.count || 0).toLocaleString()}</span>
+    </div>
+  `).join("");
+}
+
+// ── API calls ─────────────────────────────────────────────────────────────────
+async function doSearch() {
+  const q = document.getElementById("query-input").value.trim();
+  if (!q) return;
+
+  const dateFrom = document.getElementById("date-from").value;
+  const dateTo   = document.getElementById("date-to").value;
+
+  // Build query with dates if set
+  let fullQuery = q;
+  if (dateFrom && dateTo) fullQuery += ` between ${dateFrom} and ${dateTo}`;
+  else if (dateFrom) fullQuery += ` after ${dateFrom}`;
+  else if (dateTo)   fullQuery += ` before ${dateTo}`;
+
+  loadingStart();
+  clearError();
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: fullQuery, top_k: 15 }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    const articles = data.results || [];
+    const categories = data.categories || [];
+
+    renderArticles(articles);
+    renderCategories(categories);
+
+    // Build source stats from results
+    const srcMap = {};
+    articles.forEach(a => {
+      const s = a.source || "";
+      if (s) srcMap[s] = (srcMap[s] || 0) + 1;
+    });
+    const sources = Object.entries(srcMap)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([name, cnt]) => ({ name, cnt }));
+    renderSources(sources);
+
+    showToast(`🔍 "${q}" üzrə ${articles.length} nəticə tapıldı`);
+  } catch (err) {
+    showError(`Axtarış xətası: ${err.message}. API bağlantısını yoxlayın.`);
+    renderArticles([]);
+  } finally {
+    loadingEnd();
+  }
+}
+
+function setQuery(q) {
+  document.getElementById("query-input").value = q;
+  doSearch();
+}
+
+function clearDates() {
+  document.getElementById("date-from").value = "";
+  document.getElementById("date-to").value = "";
+}
+
+// ── Load stats on page load ───────────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/stats`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (data.total_articles) {
+      document.getElementById("total-count").textContent =
+        data.total_articles.toLocaleString();
+    }
+    if (data.enriched_articles !== undefined) {
+      document.getElementById("enriched-count").textContent =
+        data.enriched_articles.toLocaleString();
+    }
+  } catch { /* silently fail */ }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadStats();
+</script>
+</body>
+</html>
