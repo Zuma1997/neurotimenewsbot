@@ -1,10 +1,18 @@
 # AI News Search Assistant (Neurotime Hackathon)
 
-This repository contains the solution for the **Neurotime Hackathon Task: AI News Search Assistant with Date-Aware Retrieval**.
+## 🤖 Live Demo — No Setup Required!
 
-> 🤖 **Live Demo:** [t.me/slnacessbankbot](https://t.me/slnacessbankbot)
-> Just open the link and send any query — no setup required.
-> Example: `AccessBank haqqında xəbərlər` or `SOCAR news on May 13`
+**Test the bot right now:** [@slnacessbankbot](https://t.me/slnacessbankbot)
+
+Try these queries:
+- `AccessBank haqqında xəbərlər`
+- `Find news about SOCAR on May 13`
+- `Banking regulation between May 12 and May 14`
+- `/stats` `/keywords`
+
+---
+
+This repository contains the solution for the **Neurotime Hackathon Task: AI News Search Assistant with Date-Aware Retrieval**.
 
 ## Overview
 The system allows users to search through ~21,000 base news articles (May 10–15, 2026) plus **daily enriched articles** using natural language. It handles date ranges, topic extraction, and keyword analysis, and provides a **Telegram Bot** and a **Web Dashboard**.
@@ -55,14 +63,20 @@ cp .env.example .env
 # Edit .env and add your OPENAI_API_KEY and TELEGRAM_BOT_TOKEN
 ```
 
-### 3. Database
+### 3. Database Setup
 
-> ✅ **The database is already pre-loaded.** You do NOT need to run `load_to_supabase.py`.
-> All 20,915 articles with embeddings are already in the Supabase instance.
-> Just add your `.env` credentials and run `docker compose up --build`.
+> ✅ **Database is pre-loaded.** Our Supabase instance already contains all 20,915 articles with embeddings. You do NOT need to run `load_to_supabase.py` or have `news_data.xlsx`.
 
-The `news_data.xlsx` file is not included in this repository (too large for GitHub).
-The `scripts/load_to_supabase.py` script is provided for reference only — it was used once to populate the database.
+Simply fill in `.env` with your credentials and run the project.
+
+<details>
+<summary>Optional: Load your own Supabase instance from scratch</summary>
+
+1. Run `supabase/schema.sql` in Supabase SQL Editor
+2. Place `news_data.xlsx` in `data/` folder
+3. Run `python scripts/load_to_supabase.py`
+
+</details>
 
 ---
 
