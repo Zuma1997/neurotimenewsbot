@@ -536,8 +536,20 @@ header {
   </div>
 
   <!-- CATEGORY FILTER -->
-  <div class="cat-filter-label" style="font-family:var(--font-head);font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;display:none" id="cat-filter-label">Kateqoriya:</div>
-  <div class="cat-filter-wrap" id="cat-filter-wrap"></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;padding:0 0 16px;align-items:center">
+    <span style="font-family:var(--font-head);font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em">Kateqoriya:</span>
+    <select id="cat-select" onchange="onCategorySelect(this)" style="
+      background:var(--surface); border:1px solid var(--border2);
+      border-radius:8px; padding:6px 32px 6px 12px;
+      font-family:var(--font-body); font-size:13px; color:var(--text);
+      outline:none; cursor:pointer; min-width:180px;
+      appearance:none; -webkit-appearance:none;
+      background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%237a8394' d='M6 8L1 3h10z'/%3E%3C/svg%3E\");
+      background-repeat:no-repeat; background-position:right 10px center;
+    ">
+      <option value="">Hamısı</option>
+    </select>
+  </div>
 
   <!-- LOADING BAR -->
   <div class="loading-bar" id="loading-bar"></div>
@@ -807,30 +819,27 @@ async function loadCategories() {
     const cats = data.categories || [];
     if (!cats.length) return;
 
-    const wrap = document.getElementById("cat-filter-wrap");
-    const label = document.getElementById("cat-filter-label");
-    label.style.display = "block";
-
-    // "All" chip
-    wrap.innerHTML = `<div class="cat-chip active" onclick="selectCategory(null, this)">Все</div>`
-      + cats.map(c => `<div class="cat-chip" onclick="selectCategory('${c.replace(/'/g, "\\'")}'  , this)">${c}</div>`).join("");
+    const sel = document.getElementById("cat-select");
+    sel.innerHTML = `<option value="">Hamısı</option>`
+      + cats.map(c => `<option value="${c.replace(/"/g, '&quot;')}">${c}</option>`).join("");
   } catch { /* silently fail */ }
 }
 
-function selectCategory(cat, el) {
-  activeCategory = cat;
-  // Update active chip
-  document.querySelectorAll(".cat-chip").forEach(c => c.classList.remove("active"));
-  el.classList.add("active");
-  // Re-run search if there's a query
+function onCategorySelect(sel) {
+  activeCategory = sel.value || null;
   const q = document.getElementById("query-input").value.trim();
   if (q) doSearch();
-  // If no query but category selected, search with category name as query
-  else if (cat) {
-    document.getElementById("query-input").value = cat;
+  else if (activeCategory) {
+    document.getElementById("query-input").value = activeCategory;
     doSearch();
     document.getElementById("query-input").value = "";
   }
+}
+
+function selectCategory(cat) {
+  activeCategory = cat;
+  const sel = document.getElementById("cat-select");
+  if (sel) sel.value = cat || "";
 }
 
 // ── Daily Digest ───────────────────────────────────────────────────────────────────────────────────
