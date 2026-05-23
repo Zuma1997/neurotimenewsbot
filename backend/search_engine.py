@@ -287,20 +287,26 @@ class NewsSearchEngine:
         resp = self.oai.embeddings.create(model=EMBED_MODEL, input=[text])
         return resp.data[0].embedding
 
-    def search(self, query: str, top_k: int = TOP_K, category_filter: str = None) -> dict:
+    def search(self, query: str, top_k: int = TOP_K,
+               category_filter: str = None, sentiment_filter: str = None) -> dict:
         parsed = self.parser.parse(query)
         topic = parsed.get("topic") or query
         date_from = parsed.get("date_from")
         date_to = parsed.get("date_to")
         # category from explicit filter overrides parsed category
         category = category_filter or parsed.get("category")
+        sentiment = sentiment_filter  # pozitiv | neytral | riskli
 
         embedding = self._embed(topic)
+
+        # Fetch more rows when we'll be post-filtering
+        needs_extra = bool(category or sentiment)
+        fetch_count = min(top_k * 5, 200) if needs_extra else top_k
 
         try:
             rpc_params: dict = {
                 "query_embedding": embedding,
-                "match_count": top_k * 3 if category else top_k,  # fetch more when filtering
+                "match_count": fetch_count,
             }
             if date_from:
                 rpc_params["date_from"] = date_from
@@ -310,13 +316,24 @@ class NewsSearchEngine:
             resp = self.sb.rpc("search_news", rpc_params).execute()
             rows = resp.data or []
 
-            # Apply category filter in Python (case-insensitive partial match)
+            # Apply category filter (case-insensitive partial match)
             if category:
                 rows = [
                     r for r in rows
                     if category.lower() in (r.get("category") or "").lower()
                 ]
                 log.info("Category filter '%s': %d rows remaining", category, len(rows))
+
+            # Apply sentiment filter (exact match)
+            if sentiment and sentiment in ("pozitiv", "neytral", "riskli"):
+                rows = [
+                    r for r in rows
+                    if (r.get("sentiment") or "").lower() == sentiment.lower()
+                ]
+                log.info("Sentiment filter '%s': %d rows remaining", sentiment, len(rows))
+
+            # Limit to top_k after all filters
+            rows = rows[:top_k]
 
         except Exception as exc:
             log.error("Supabase RPC error: %s", exc, exc_info=True)

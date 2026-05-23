@@ -484,6 +484,15 @@ header {
   <!-- DAILY DIGEST (appears when date is selected) -->
   <div id="digest-area"></div>
 
+  <!-- SENTIMENT FILTER -->
+  <div style="display:flex;gap:8px;flex-wrap:wrap;padding:0 0 10px;align-items:center">
+    <span style="font-family:var(--font-head);font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em">Sentment:</span>
+    <div class="cat-chip active" id="sent-all" onclick="selectSentiment(null, this)">Hamısı</div>
+    <div class="cat-chip" id="sent-pozitiv" onclick="selectSentiment('pozitiv', this)" style="color:#2ecc8a;border-color:#2ecc8a40">🟢 Pozitiv</div>
+    <div class="cat-chip" id="sent-neytral" onclick="selectSentiment('neytral', this)" style="color:#f0a04a;border-color:#f0a04a40">🔵 Neytral</div>
+    <div class="cat-chip" id="sent-riskli" onclick="selectSentiment('riskli', this)" style="color:#ff5a5a;border-color:#ff5a5a40">🔴 Riskli</div>
+  </div>
+
   <!-- CATEGORY FILTER -->
   <div class="cat-filter-label" style="font-family:var(--font-head);font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;display:none" id="cat-filter-label">Kateqoriya:</div>
   <div class="cat-filter-wrap" id="cat-filter-wrap"></div>
@@ -677,6 +686,7 @@ async function doSearch() {
   try {
     const body = { query: fullQuery, top_k: 15 };
     if (activeCategory) body.category = activeCategory;
+    if (activeSentiment) body.sentiment = activeSentiment;
 
     const resp = await fetch(`${API_BASE}/api/search`, {
       method: "POST",
@@ -730,6 +740,15 @@ function clearDates() {
 
 // ── Category filter ─────────────────────────────────────────────────────────────────────────────
 let activeCategory = null;
+let activeSentiment = null;
+
+function selectSentiment(sent, el) {
+  activeSentiment = sent;
+  document.querySelectorAll("#sent-all, #sent-pozitiv, #sent-neytral, #sent-riskli").forEach(c => c.classList.remove("active"));
+  el.classList.add("active");
+  const q = document.getElementById("query-input").value.trim();
+  if (q) doSearch();
+}
 
 async function loadCategories() {
   try {
