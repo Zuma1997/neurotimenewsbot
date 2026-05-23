@@ -213,6 +213,53 @@ def run_enrichment_now(req: KeywordsRequest = None):
     }
 
 
+# ── Chat endpoint ─────────────────────────────────────────────────────
+class ChatRequest(_BaseModel):
+    message: str
+    history: list = []
+
+
+@app.post("/api/chat")
+def chat(req: ChatRequest):
+    """AI chatbot that can answer questions about the news database."""
+    from openai import OpenAI as _OAI
+    oai = _OAI(api_key=os.getenv("OPENAI_API_KEY"), base_url="https://api.openai.com/v1")
+
+    system_prompt = """You are an AI assistant for Social Listening Tool — an Azerbaijani media monitoring platform.
+
+You have access to a database of ~21,000 Azerbaijani news articles from May 10-15, 2026, plus daily enriched articles.
+Topics covered: banking, finance, economy, politics, society, sports, culture, SOCAR, AccessBank, Mərkəzi Bank, etc.
+
+You can:
+- Answer questions about news topics in the database
+- Explain how to use the platform (search, filters, sentiment analysis)
+- Discuss Azerbaijani news and media landscape
+- Help users formulate better search queries
+
+Respond in the same language as the user (Azerbaijani, Russian, or English).
+Be concise and helpful. If asked about specific articles, suggest using the search bar."""
+
+    messages = [{"role": "system", "content": system_prompt}]
+    # Add history (last 8 messages)
+    for h in req.history[-8:]:
+        if h.get("role") in ("user", "assistant"):
+            messages.append({"role": h["role"], "content": h["content"]})
+    messages.append({"role": "user", "content": req.message})
+
+    try:
+        resp = oai.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=400,
+        )
+        reply = resp.choices[0].message.content.strip()
+        return {"reply": reply}
+    except Exception as exc:
+        log.error("Chat error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 # ── Serve dashboard.html ─────────────────────────────────────────────────────
 DASHBOARD = Path(__file__).parent.parent / "dashboard.html"
 

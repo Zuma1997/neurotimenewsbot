@@ -15,6 +15,7 @@ Commands:
 
 import logging
 import os
+import re
 from datetime import datetime, timezone, timedelta, time as dt_time
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -228,27 +229,39 @@ async def generate_daily_digest(date_str: str) -> str | None:
             temperature=0.4,
             max_tokens=1200,
         )
-        # Get plain text from GPT — strip any markdown formatting
+        # Get plain text from GPT
         digest_text = gpt_resp.choices[0].message.content.strip()
-        # Remove markdown bold/italic that GPT sometimes adds
-        digest_text = digest_text.replace("**", "").replace("__", "")
+
+        # Make section headers bold using MarkdownV2
+        # GPT returns lines like "1. \u00dcMUM\u0130 X\u00dcLAS\u018c:" or "2. KATEQOR\u0130YALAR..."
+        import re
+        def bold_headers(text: str) -> str:
+            # Bold numbered section headers: "1. HEADER:" or "1. HEADER —"
+            text = re.sub(
+                r'^(\d+\.\s+)([A-Z\u0130\u018e\u0152\u00dc\u00c7\u011e\u015e\u00d6\u00dc][A-Z\u0130\u018e\u0152\u00dc\u00c7\u011e\u015e\u00d6\u00dc\s\u0130\u018e\u0152\u00dc\u00c7\u011e\u015e\u00d6\u00dc]+[:\s])',
+                lambda m: m.group(1) + '*' + escape_md(m.group(2).rstrip()) + '*',
+                text, flags=re.MULTILINE
+            )
+            return text
+
+        digest_md = bold_headers(escape_md(digest_text))
 
         # Count only articles that have sentiment assigned
         total_with_sentiment = pos + neu + risk
         header = (
-            f"[{date_str}] Gundəlik Xəbər Hesabatı\n"
-            f"Məqalə: {len(rows)} | Pozitiv: {pos} | Neytral: {neu} | Riskli: {risk}\n"
-            f"(Sentimentlər: {total_with_sentiment}/{len(rows)} məqalə)\n"
-            f"{'='*40}\n\n"
+            f"*\[{escape_md(date_str)}\] Gundəlik Xəbər Hesabatı*\n"
+            f"Məqalə: {len(rows)} \| Pozitiv: {pos} \| Neytral: {neu} \| Riskli: {risk}\n"
+            f"_Sentimentlər: {total_with_sentiment}/{len(rows)} məqalə_\n"
+            f"\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\n\n"
         )
-        return header + digest_text
+        return header + digest_md
     except Exception as exc:
         log.error("Daily digest GPT error: %s", exc)
         return None
 
 
 async def _send_digest_message(target, digest: str) -> None:
-    """Send digest text as plain text, splitting if needed."""
+    """Send digest with MarkdownV2 (bold headers), fallback to plain text."""
     chunks = []
     if len(digest) <= 4000:
         chunks = [digest]
@@ -266,7 +279,14 @@ async def _send_digest_message(target, digest: str) -> None:
             chunks.append(chunk.strip())
 
     for chunk in chunks:
-        await target.reply_text(chunk, disable_web_page_preview=True)
+        try:
+            await target.reply_text(chunk, parse_mode="MarkdownV2",
+                                    disable_web_page_preview=True)
+        except Exception as e:
+            log.warning("MarkdownV2 failed for digest chunk: %s", e)
+            # Strip all markdown and send plain
+            plain = re.sub(r'[*_`\[\]\(\)~>#\+\-=|{}\.!\\]', '', chunk)
+            await target.reply_text(plain, disable_web_page_preview=True)
 
 
 # ── Handlers ──────────────────────────────────────────────────────────────────
