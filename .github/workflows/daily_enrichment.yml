@@ -31,7 +31,8 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: python scripts/rss_enrichment.py
+          NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
+        run: python scripts/keyword_enrichment.py
 
       - name: Upload enrichment log on success
         if: success()

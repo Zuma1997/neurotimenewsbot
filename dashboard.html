@@ -917,8 +917,8 @@ async function checkApiStatus() {
     const resp = await fetch(`${API_BASE}/api/enrichment/keywords`);
     if (resp.ok) {
       el.innerHTML = `✅ <b>Supabase</b> bağlıdır<br>
-        ℹ️ Google API aktiv etmək üçün serverdə <code>GOOGLE_API_KEY</code> və <code>GOOGLE_CSE_ID</code> dəyişənlərini təyin edin.<br>
-        <a href="https://console.cloud.google.com/apis/library/customsearch.googleapis.com" target="_blank" style="color:var(--accent2)">Google Custom Search API əldə et →</a>`;
+        ℹ️ Axtarış aktiv etmək üçün serverdə <code>NEWS_API_KEY</code> dəyişənini təyin edin.<br>
+        <a href="https://newsapi.org/register" target="_blank" style="color:var(--accent2)">NewsAPI.org-da pulsuz qeydiyyat →</a> (gündə 100 sorğu pulsuz)`;
     }
   } catch {
     el.textContent = "❌ API bağlı deyil";

@@ -167,14 +167,13 @@ def run_enrichment_now(req: KeywordsRequest = None):
         run_enrichment, load_keywords_from_supabase
     )
 
-    google_api_key = os.getenv("GOOGLE_API_KEY")
-    google_cse_id = os.getenv("GOOGLE_CSE_ID")
+    news_api_key = os.getenv("NEWS_API_KEY")
 
-    if not google_api_key or not google_cse_id:
+    if not news_api_key:
         raise HTTPException(
             status_code=400,
-            detail="GOOGLE_API_KEY and GOOGLE_CSE_ID must be set in environment variables. "
-                   "Get them at: console.cloud.google.com (Custom Search API)"
+            detail="NEWS_API_KEY must be set in environment variables. "
+                   "Get a free key at: newsapi.org/register"
         )
 
     engine = get_engine()
@@ -199,7 +198,7 @@ def run_enrichment_now(req: KeywordsRequest = None):
 
     def _run():
         result_holder.update(
-            run_enrichment(keywords, oai, engine.sb, google_api_key, google_cse_id)
+            run_enrichment(keywords, oai, engine.sb, news_api_key)
         )
 
     t = threading.Thread(target=_run, daemon=True)

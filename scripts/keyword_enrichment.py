@@ -1,26 +1,22 @@
 """
 keyword_enrichment.py
 ---------------------
-Keyword-based news enrichment pipeline.
+Keyword-based news enrichment pipeline using NewsAPI.org.
 
-Instead of RSS feeds, this script:
-  1. Takes a list of keywords (from Supabase `enrichment_config` table or env)
-  2. Searches for fresh news articles via Google Custom Search API
-  3. Fetches article content from each URL
-  4. Sends to GPT-4o for relevance check + sentiment + Azerbaijani summary
-  5. Generates embeddings and upserts to Supabase with is_enriched=True
+Steps:
+  1. Takes a list of keywords (from Supabase `enrichment_config` table)
+  2. Searches for fresh news articles via NewsAPI.org
+  3. Sends each article to GPT-4o: relevance check + sentiment + Azerbaijani summary
+  4. Generates embeddings and upserts to Supabase with is_enriched=True
 
-Requirements:
-  GOOGLE_API_KEY     — Google Cloud API key with Custom Search enabled
-  GOOGLE_CSE_ID      — Custom Search Engine ID (cx parameter)
-  OPENAI_API_KEY     — OpenAI API key
-  SUPABASE_URL       — Supabase project URL
+Required env vars:
+  NEWS_API_KEY         — NewsAPI.org API key (free: 100 req/day)
+  OPENAI_API_KEY       — OpenAI API key
+  SUPABASE_URL         — Supabase project URL
   SUPABASE_SERVICE_KEY — Supabase service role key
 
-Can be run:
-  - Manually: python scripts/keyword_enrichment.py
-  - Via API:  POST /api/enrichment/run
-  - Via GitHub Actions cron (see .github/workflows/daily_enrichment.yml)
+Run:
+  python scripts/keyword_enrichment.py
 """
 
 import json
@@ -28,9 +24,8 @@ import logging
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
-from urllib.parse import quote_plus
 
 import requests
 from openai import OpenAI
@@ -40,8 +35,9 @@ log = logging.getLogger(__name__)
 
 EMBED_MODEL = "text-embedding-3-small"
 GPT_MODEL = "gpt-4o"
-MAX_RESULTS_PER_KEYWORD = 5   # Google CSE returns max 10 per query
+MAX_RESULTS_PER_KEYWORD = 5
 MAX_CONTENT_CHARS = 2000
+NEWSAPI_BASE = "https://newsapi.org/v2/everything"
 
 RELEVANCE_PROMPT = """You are an analyst for an Azerbaijani financial and economic news monitoring system.
 
@@ -56,54 +52,47 @@ Article content: {content}
 Return ONLY valid JSON, no explanation."""
 
 
-def search_google(keyword: str, api_key: str, cse_id: str,
-                  num: int = MAX_RESULTS_PER_KEYWORD) -> list[dict]:
-    """Search Google Custom Search API for news about a keyword."""
-    url = "https://www.googleapis.com/customsearch/v1"
+def search_newsapi(keyword: str, api_key: str,
+                   num: int = MAX_RESULTS_PER_KEYWORD) -> list[dict]:
+    """Search NewsAPI for recent articles about a keyword."""
+    # Search last 7 days
+    from_date = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+
     params = {
-        "key": api_key,
-        "cx": cse_id,
+        "apiKey": api_key,
         "q": keyword,
-        "num": min(num, 10),
-        "dateRestrict": "d1",   # last 24 hours
-        "lr": "lang_az|lang_ru",  # Azerbaijani and Russian
-        "sort": "date",
+        "pageSize": min(num, 10),
+        "sortBy": "publishedAt",
+        "from": from_date,
     }
+
     try:
-        resp = requests.get(url, params=params, timeout=15)
+        resp = requests.get(NEWSAPI_BASE, params=params, timeout=15)
         resp.raise_for_status()
         data = resp.json()
-        items = data.get("items", [])
-        log.info("Google CSE: %d results for '%s'", len(items), keyword)
+
+        if data.get("status") != "ok":
+            log.error("NewsAPI error for '%s': %s", keyword, data.get("message"))
+            return []
+
+        articles = data.get("articles", [])
+        log.info("NewsAPI: %d results for '%s'", len(articles), keyword)
+
         return [
             {
-                "url": item.get("link", ""),
-                "title": item.get("title", ""),
-                "snippet": item.get("snippet", ""),
-                "source": re.search(r"https?://([^/]+)", item.get("link", "")).group(1)
-                          if item.get("link") else "",
+                "url": a.get("url", ""),
+                "title": a.get("title", ""),
+                "content": (a.get("content") or a.get("description") or "")[:MAX_CONTENT_CHARS],
+                "source": a.get("source", {}).get("name", ""),
+                "published_at": a.get("publishedAt", ""),
+                "keyword": keyword,
             }
-            for item in items
-            if item.get("link")
+            for a in articles
+            if a.get("url") and a.get("title") and "[Removed]" not in (a.get("title") or "")
         ]
     except Exception as exc:
-        log.error("Google CSE error for '%s': %s", keyword, exc)
+        log.error("NewsAPI request error for '%s': %s", keyword, exc)
         return []
-
-
-def fetch_article_content(url: str) -> str:
-    """Fetch article text content from URL."""
-    try:
-        resp = requests.get(url, timeout=10, headers={
-            "User-Agent": "Mozilla/5.0 (compatible; NewsBot/1.0)"
-        })
-        resp.raise_for_status()
-        # Simple text extraction — strip HTML tags
-        text = re.sub(r"<[^>]+>", " ", resp.text)
-        text = re.sub(r"\s+", " ", text).strip()
-        return text[:MAX_CONTENT_CHARS]
-    except Exception:
-        return ""
 
 
 def analyze_article(oai: OpenAI, title: str, content: str) -> Optional[dict]:
@@ -172,7 +161,7 @@ def save_keywords_to_supabase(sb: Client, keywords: list[str]) -> None:
     try:
         # Deactivate all existing
         sb.table("enrichment_config").update({"active": False}).neq("id", 0).execute()
-        # Insert new ones
+        # Insert/update new ones
         rows = [{"keyword": kw, "active": True} for kw in keywords if kw.strip()]
         if rows:
             sb.table("enrichment_config").upsert(rows, on_conflict="keyword").execute()
@@ -185,12 +174,9 @@ def run_enrichment(
     keywords: list[str],
     oai: OpenAI,
     sb: Client,
-    google_api_key: str,
-    google_cse_id: str,
+    news_api_key: str,
 ) -> dict:
-    """
-    Main enrichment function. Returns summary stats.
-    """
+    """Main enrichment function. Returns summary stats."""
     if not keywords:
         return {"enriched": 0, "skipped": 0, "errors": 0, "message": "No keywords provided"}
 
@@ -198,18 +184,20 @@ def run_enrichment(
 
     all_articles: list[dict] = []
 
-    # Step 1: Search Google for each keyword
+    # Step 1: Search NewsAPI for each keyword
     for kw in keywords:
-        results = search_google(kw, google_api_key, google_cse_id)
-        for r in results:
-            r["keyword"] = kw
+        results = search_newsapi(kw, news_api_key)
         all_articles.extend(results)
-        time.sleep(0.3)  # rate limit
+        time.sleep(0.5)  # rate limit
 
     log.info("Total articles found: %d", len(all_articles))
 
     if not all_articles:
-        return {"enriched": 0, "skipped": 0, "errors": 0, "message": "No articles found from search"}
+        return {
+            "enriched": 0, "skipped_irrelevant": 0, "errors": 0,
+            "total_found": 0, "total_new": 0,
+            "message": "No articles found — try different keywords"
+        }
 
     # Step 2: Deduplicate
     urls = [a["url"] for a in all_articles]
@@ -223,8 +211,7 @@ def run_enrichment(
 
     # Step 3: Analyze, embed, upsert
     for article in new_articles:
-        # Fetch full content
-        content = fetch_article_content(article["url"]) or article.get("snippet", "")
+        content = article.get("content", "")
 
         # GPT-4o analysis
         analysis = analyze_article(oai, article["title"], content)
@@ -243,6 +230,9 @@ def run_enrichment(
             errors += 1
             continue
 
+        # Parse published date
+        pub_at = article.get("published_at") or datetime.now(timezone.utc).isoformat()
+
         # Upsert to Supabase
         row = {
             "url": article["url"],
@@ -250,7 +240,7 @@ def run_enrichment(
             "content": content[:5000],
             "source": article["source"],
             "category": "",
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": pub_at,
             "embedding": embedding,
             "is_enriched": True,
             "sentiment": analysis.get("sentiment", "neytral"),
@@ -260,7 +250,7 @@ def run_enrichment(
         try:
             sb.table("articles").upsert(row, on_conflict="url").execute()
             enriched += 1
-            log.info("  ✓ Enriched [%s]: %s", analysis.get("sentiment"), article["title"][:60])
+            log.info("  ✓ [%s] %s", analysis.get("sentiment"), article["title"][:60])
         except Exception as exc:
             log.error("  Supabase upsert error: %s", exc)
             errors += 1
@@ -279,25 +269,21 @@ def run_enrichment(
 
 
 def main() -> None:
-    """CLI entry point."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
     openai_key = os.getenv("OPENAI_API_KEY")
     supabase_url = os.getenv("SUPABASE_URL")
     supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
-    google_api_key = os.getenv("GOOGLE_API_KEY")
-    google_cse_id = os.getenv("GOOGLE_CSE_ID")
+    news_api_key = os.getenv("NEWS_API_KEY")
 
-    if not all([openai_key, supabase_url, supabase_key, google_api_key, google_cse_id]):
+    if not all([openai_key, supabase_url, supabase_key, news_api_key]):
         raise EnvironmentError(
-            "Required env vars: OPENAI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY, "
-            "GOOGLE_API_KEY, GOOGLE_CSE_ID"
+            "Required: OPENAI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY, NEWS_API_KEY"
         )
 
     oai = OpenAI(api_key=openai_key, base_url="https://api.openai.com/v1")
     sb = create_client(supabase_url, supabase_key)
 
-    # Load keywords from DB, fallback to env var
     keywords = load_keywords_from_supabase(sb)
     if not keywords:
         kw_env = os.getenv("ENRICHMENT_KEYWORDS", "")
@@ -307,7 +293,7 @@ def main() -> None:
         log.info("No keywords configured — pipeline healthy")
         return
 
-    result = run_enrichment(keywords, oai, sb, google_api_key, google_cse_id)
+    result = run_enrichment(keywords, oai, sb, news_api_key)
     log.info("Result: %s", result)
 
 
