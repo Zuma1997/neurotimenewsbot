@@ -6,6 +6,7 @@
 <title>Neurotime — Xəbər Axtarışı</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <style>
 :root {
   --bg:       #0a0a0f;
@@ -372,6 +373,24 @@ header {
 }
 .btn-settings:hover { border-color: var(--accent); color: var(--accent2); }
 
+/* ── Report modal ── */
+.report-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.7); z-index: 200;
+  align-items: center; justify-content: center;
+}
+.report-overlay.open { display: flex; }
+.report-modal {
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 18px; padding: 28px; width: 440px; max-width: 95vw;
+  animation: fadeUp 0.25s ease both;
+}
+.report-title {
+  font-family: var(--font-head); font-size: 16px; font-weight: 800;
+  color: var(--text); margin-bottom: 18px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+
 @media (max-width: 768px) {
   .main-grid { grid-template-columns: 1fr; }
   .stats-row { display: none; }
@@ -403,6 +422,7 @@ header {
           <div class="stat-lbl">Mənbə</div>
         </div>
       </div>
+      <button class="btn-settings" onclick="openReport()" id="report-btn" style="display:none">📧 Report</button>
       <button class="btn-settings" onclick="openSettings()">⚙️ Parametrlər</button>
     </div>
   </header>
@@ -451,6 +471,28 @@ header {
       </div>
 
       <div id="settings-result"></div>
+    </div>
+  </div>
+
+  <!-- REPORT MODAL -->
+  <div class="report-overlay" id="report-overlay" onclick="closeReportIfOutside(event)">
+    <div class="report-modal">
+      <div class="report-title">
+        📧 Hesabat göndər
+        <button class="settings-close" onclick="closeReport()">×</button>
+      </div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5">
+        Axtarış nəticələri, AI xülasəsi və mənbələr email-ə göndəriləcək.
+      </p>
+      <div style="margin-bottom:14px">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">Email ünvanı:</label>
+        <input class="kw-input" id="report-email" type="email" placeholder="example@gmail.com" style="width:100%">
+      </div>
+      <div style="display:flex;gap:10px">
+        <button class="btn" onclick="sendReport()" id="send-report-btn" style="flex:1">✉️ Göndər</button>
+        <button class="btn btn-ghost" onclick="closeReport()">Ləğv et</button>
+      </div>
+      <div id="report-result" style="margin-top:12px"></div>
     </div>
   </div>
 
@@ -703,6 +745,13 @@ async function doSearch() {
     const articles = data.results || [];
     const categories = data.categories || [];
 
+    // Save for report
+    lastSearchResult = data;
+    lastSearchQuery = q;
+    if (articles.length > 0) {
+      document.getElementById("report-btn").style.display = "";
+    }
+
     renderArticles(articles);
     renderCategories(categories);
 
@@ -862,6 +911,97 @@ async function loadStats() {
         data.enriched_articles.toLocaleString();
     }
   } catch { /* silently fail */ }
+}
+
+// ── EmailJS Config ───────────────────────────────────────────────────────────────────────────────────
+// Fill these in after creating EmailJS account at emailjs.com
+const EMAILJS_PUBLIC_KEY  = "YOUR_PUBLIC_KEY";   // Account → API Keys
+const EMAILJS_SERVICE_ID  = "YOUR_SERVICE_ID";   // Email Services
+const EMAILJS_TEMPLATE_ID = "YOUR_TEMPLATE_ID";  // Email Templates
+
+// Current search state for report
+let lastSearchResult = null;
+let lastSearchQuery  = "";
+
+// ── Report modal ───────────────────────────────────────────────────────────────────────────────────
+function openReport() {
+  if (!lastSearchResult || !lastSearchResult.results.length) {
+    showToast("⚠️ Əvvəlcə axətarış edin");
+    return;
+  }
+  document.getElementById("report-overlay").classList.add("open");
+  document.getElementById("report-result").innerHTML = "";
+}
+
+function closeReport() {
+  document.getElementById("report-overlay").classList.remove("open");
+}
+
+function closeReportIfOutside(e) {
+  if (e.target === document.getElementById("report-overlay")) closeReport();
+}
+
+async function sendReport() {
+  const email = document.getElementById("report-email").value.trim();
+  if (!email || !email.includes("@")) {
+    document.getElementById("report-result").innerHTML =
+      `<div class="settings-result error">❌ Düzgün email daxil edin</div>`;
+    return;
+  }
+
+  if (!lastSearchResult) return;
+
+  const btn = document.getElementById("send-report-btn");
+  btn.disabled = true;
+  btn.textContent = "⏳ Göndərilir...";
+
+  // Build report content
+  const r = lastSearchResult;
+  const query = lastSearchQuery;
+  const parsed = r.parsed_query || {};
+  const dateInfo = parsed.date_from ? `${parsed.date_from}${parsed.date_to ? ' — ' + parsed.date_to : ''}` : 'Tarix filtri yoxdur';
+
+  const summaryText = r.summary || 'Xülasə yoxdur';
+
+  const sourcesList = (r.results || []).slice(0, 10).map((a, i) =>
+    `${i+1}. [${a.source} — ${Math.round((a.display_score || a.score) * 100)}%] ${a.title}\n   ${a.url}`
+  ).join('\n\n');
+
+  const reportText = `🔎 Sorgu: ${query}\n📅 Tarix: ${dateInfo}\n📊 Nəticələr: ${r.total_results}\n\n📋 Xülasə:\n${summaryText}\n\n📰 Mənbələr:\n${sourcesList}`;
+
+  try {
+    if (EMAILJS_PUBLIC_KEY === "YOUR_PUBLIC_KEY") {
+      // Demo mode — show what would be sent
+      document.getElementById("report-result").innerHTML =
+        `<div class="settings-result info">ℹ️ Demo rejimi: EmailJS konfiqurasiya edilməyib.<br>
+        <small>Hesabat məzmunu hazırlandı (${r.results.length} məqalə, ${summaryText.length} simvol xülasə)</small></div>`;
+      btn.disabled = false;
+      btn.textContent = "✉️ Göndər";
+      return;
+    }
+
+    emailjs.init(EMAILJS_PUBLIC_KEY);
+    await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+      to_email: email,
+      subject: `Social Listening Report: ${query}`,
+      query: query,
+      date_range: dateInfo,
+      total_results: r.total_results,
+      summary: summaryText,
+      sources: sourcesList,
+      report_text: reportText,
+    });
+
+    document.getElementById("report-result").innerHTML =
+      `<div class="settings-result success">✅ Hesabat ${email} ünvanına göndərildi!</div>`;
+    showToast("✅ Hesabat göndərildi!");
+  } catch (err) {
+    document.getElementById("report-result").innerHTML =
+      `<div class="settings-result error">❌ Xəta: ${err.text || err.message || err}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "✉️ Göndər";
+  }
 }
 
 // ── Settings modal ───────────────────────────────────────────────────────────────────────────────────
