@@ -55,15 +55,14 @@ cp .env.example .env
 # Edit .env and add your OPENAI_API_KEY and TELEGRAM_BOT_TOKEN
 ```
 
-Place the provided dataset (`news_data.xlsx`) into the `data/` directory.
+### 3. Database
 
-### 3. Database Setup & Initial Load
-1. Run the SQL schema in your Supabase SQL Editor: `supabase/schema.sql`
-2. Load the base dataset (20k articles) into Supabase:
-```bash
-python scripts/load_to_supabase.py
-```
-*This script generates embeddings and upserts rows. It takes a few minutes and costs ~$0.50-$1.00 in OpenAI credits.*
+> ✅ **The database is already pre-loaded.** You do NOT need to run `load_to_supabase.py`.
+> All 20,915 articles with embeddings are already in the Supabase instance.
+> Just add your `.env` credentials and run `docker compose up --build`.
+
+The `news_data.xlsx` file is not included in this repository (too large for GitHub).
+The `scripts/load_to_supabase.py` script is provided for reference only — it was used once to populate the database.
 
 ---
 
