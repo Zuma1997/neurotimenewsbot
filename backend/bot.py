@@ -236,9 +236,9 @@ async def generate_daily_digest(date_str: str) -> str | None:
         # Count only articles that have sentiment assigned
         total_with_sentiment = pos + neu + risk
         header = (
-            f"\ud83d\udcc5 {date_str} \u2014 G\u00fcnd\u0259lik X\u0259b\u0259r Hesabat\u0131\n"
-            f"\ud83d\udcca {len(rows)} m\u0259qal\u0259 | \ud83d\udfe2 {pos} pozitiv | \ud83d\udd35 {neu} neytral | \ud83d\udd34 {risk} riskli\n"
-            f"(Sentimentl\u0259r: {total_with_sentiment}/{len(rows)} m\u0259qal\u0259)\n"
+            f"[{date_str}] Gundəlik Xəbər Hesabatı\n"
+            f"Məqalə: {len(rows)} | Pozitiv: {pos} | Neytral: {neu} | Riskli: {risk}\n"
+            f"(Sentimentlər: {total_with_sentiment}/{len(rows)} məqalə)\n"
             f"{'='*40}\n\n"
         )
         return header + digest_text
@@ -335,15 +335,13 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def dailydemo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show a demo daily digest for May 13, 2026."""
     msg = await update.message.reply_text(
-        "⏳ Gündəlik hesabat hazırlanır\\.\\.\\. \\(\\~20 san\\)",
-        parse_mode="MarkdownV2"
+        "Gundəlik hesabat hazırlanır... (~20 san)"
     )
     digest = await generate_daily_digest("2026-05-13")
     await msg.delete()
     if not digest:
         await update.message.reply_text(
-            "❌ 2026\\-05\\-13 tarixi üçün məlumat tapilmadı\\.",
-            parse_mode="MarkdownV2"
+            "2026-05-13 tarixi ucun melumat tapilmadi."
         )
         return
     await _send_digest_message(update.message, digest)
