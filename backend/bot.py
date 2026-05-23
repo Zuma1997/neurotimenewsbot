@@ -228,19 +228,27 @@ async def generate_daily_digest(date_str: str) -> str | None:
             temperature=0.4,
             max_tokens=1200,
         )
+        # Get plain text from GPT — strip any markdown formatting
         digest_text = gpt_resp.choices[0].message.content.strip()
+        # Remove markdown bold/italic that GPT sometimes adds
+        digest_text = digest_text.replace("**", "").replace("__", "")
+
+        # Count only articles that have sentiment assigned
+        total_with_sentiment = pos + neu + risk
         header = (
-            f"📅 *{escape_md(date_str)} — Gündəlik Xəbər Hesabatı*\n"
-            f"_📊 {len(rows)} məqalə \\| 🟢 {pos} pozitiv \\| 🔵 {neu} neytral \\| 🔴 {risk} riskli_\n\n"
+            f"\ud83d\udcc5 {date_str} \u2014 G\u00fcnd\u0259lik X\u0259b\u0259r Hesabat\u0131\n"
+            f"\ud83d\udcca {len(rows)} m\u0259qal\u0259 | \ud83d\udfe2 {pos} pozitiv | \ud83d\udd35 {neu} neytral | \ud83d\udd34 {risk} riskli\n"
+            f"(Sentimentl\u0259r: {total_with_sentiment}/{len(rows)} m\u0259qal\u0259)\n"
+            f"{'='*40}\n\n"
         )
-        return header + escape_md(digest_text)
+        return header + digest_text
     except Exception as exc:
         log.error("Daily digest GPT error: %s", exc)
         return None
 
 
 async def _send_digest_message(target, digest: str) -> None:
-    """Send digest text, splitting if needed, with MarkdownV2 fallback."""
+    """Send digest text as plain text, splitting if needed."""
     chunks = []
     if len(digest) <= 4000:
         chunks = [digest]
@@ -258,15 +266,7 @@ async def _send_digest_message(target, digest: str) -> None:
             chunks.append(chunk.strip())
 
     for chunk in chunks:
-        try:
-            await target.reply_text(chunk, parse_mode="MarkdownV2",
-                                    disable_web_page_preview=True)
-        except Exception:
-            plain = chunk
-            for ch in r"_*[]()~`>#+-=|{}.!\\":
-                plain = plain.replace(f"\\{ch}", ch)
-            plain = plain.replace("*", "").replace("`", "").replace("_", "")
-            await target.reply_text(plain, disable_web_page_preview=True)
+        await target.reply_text(chunk, disable_web_page_preview=True)
 
 
 # ── Handlers ──────────────────────────────────────────────────────────────────
