@@ -6,66 +6,144 @@
 
 Try these queries:
 - `AccessBank haqqında xəbərlər`
-- `Find news about SOCAR on May 13`
+- `Скажи про SOCAR что было 13 мая`
 - `Banking regulation between May 12 and May 14`
+- `Riskli iqtisadi xəbərlər`
 - `/stats` `/keywords`
 
 ---
 
-This repository contains the solution for the **Neurotime Hackathon Task: AI News Search Assistant with Date-Aware Retrieval**.
-
 ## Overview
-The system allows users to search through ~21,000 base news articles (May 10–15, 2026) plus **daily enriched articles** using natural language. It handles date ranges, topic extraction, and keyword analysis, and provides a **Telegram Bot** and a **Web Dashboard**.
 
-### 🌟 Key Differentiator: Daily Data Enrichment (Python + GitHub Actions + GPT-4o)
-Our unique feature is the **Daily Data Enrichment Pipeline**. Every day at 09:00 UTC, a GitHub Actions cron job runs `scripts/rss_enrichment.py`:
-1. Pulls fresh news from major Azerbaijani RSS feeds (Oxu.az, Trend.az, 1news.az, etc.).
-2. Deduplicates against existing articles in Supabase.
-3. Passes new articles to **GPT-4o** for relevance check, sentiment analysis (`pozitiv`, `neytral`, `riskli`), and Azerbaijani summarization.
-4. Generates embeddings and upserts the enriched articles into Supabase with an `is_enriched = true` flag.
-5. Saves the daily digest to Supabase (for the web dashboard) and sends a digest email via Microsoft Outlook OAuth.
+An AI-powered news search assistant built for the **Neurotime Hackathon Task: AI News Search Assistant with Date-Aware Retrieval**.
 
-### Architecture & Approach
-To comply with the cost constraints (under $10) and ensure high performance, we use a **Supabase pgvector hybrid search architecture**:
-1. **Query Parsing (LLM):** User's natural language query is parsed by `gpt-4.1-mini` to extract the `topic`, `date_from`, `date_to`, `source`, and `category`.
-2. **Vector + Date Search (Supabase RPC):** The parsed topic is embedded using `text-embedding-3-small`. We call a custom Supabase RPC function (`search_news`) that first applies SQL date filters, then performs cosine similarity vector search on the filtered subset.
-3. **Keyword Extraction (Frequency):** Extracts the most common entities/keywords from the returned results, filtering out stopwords.
+The system searches through **~21,000 Azerbaijani news articles** (May 10–15, 2026) plus **daily enriched articles** using natural language. It supports Azerbaijani, Russian, and English queries, handles date ranges, and provides both a **Telegram Bot** and a **Web Dashboard**.
 
-### Features
-- **Natural Language Search:** e.g., *"Find news about AccessBank between May 12 and May 14"*
-- **Date-Aware Retrieval:** Understands "on May 13", "after May 12", etc.
-- **Telegram Bot:** Interactive, paginated results, `/keywords`, `/stats` commands, enriched-article badges and sentiment indicators.
-- **Web Dashboard (Bonus):** React frontend with FastAPI backend, relevance score badges, and keyword clouds.
-- **Daily Enrichment:** GitHub Actions pipeline adds fresh articles every morning with GPT-4o sentiment + Azerbaijani summaries.
-- **Cost-Efficient:** One-time embedding cost ~$0.50. Each search costs ~$0.0001 (only query parsing).
+---
+
+## 🌟 Key Features
+
+| Feature | Description |
+|---------|-------------|
+| 🔍 **Natural Language Search** | Understands queries in Azerbaijani, Russian, and English |
+| 📅 **Date-Aware Retrieval** | "on May 13", "between May 12 and May 14", "after May 11" |
+| 🌐 **Multilingual Responses** | Detects query language and responds in the same language (az/ru/en) |
+| 📋 **AI-Generated Summary** | GPT-4o synthesizes all results into a coherent paragraph |
+| 🎯 **Relevance Scoring** | Results filtered to ≥80% similarity, sorted highest first |
+| 😊 **Sentiment Analysis** | Every article classified as 🟢 Pozitiv / 🔵 Neytral / 🔴 Riskli |
+| ✨ **Daily Enrichment** | GitHub Actions runs every day at 09:00 UTC — fetches fresh news via NewsAPI, analyzes with GPT-4o, adds to Supabase |
+| 📊 **AI Topic Categories** | GPT-4o identifies meaningful topic clusters from results |
+| 🤖 **Telegram Bot** | Full natural language interaction, paginated results |
+| 🖥️ **Web Dashboard** | Dark UI with date digest, category filter, settings panel |
+
+---
+
+## Architecture
+
+```
+User Query (Telegram / Web)
+        │
+        ▼
+  QueryParser (gpt-4.1-mini)
+  ├── topic extraction
+  ├── date range parsing
+  └── language detection (az/ru/en)
+        │
+        ▼
+  Supabase pgvector RPC: search_news()
+  ├── SQL date filter first
+  └── cosine similarity on filtered subset
+        │
+        ▼
+  Filter ≥80% + Sort by score
+        │
+        ├──► SummaryGenerator (gpt-4o)
+        │    └── Multilingual summary in detected language
+        │
+        └──► CategoryAnalyzer (gpt-4.1-mini)
+             └── AI topic categories
+```
+
+**Why Supabase pgvector instead of FAISS:**
+The `search_news()` RPC function applies SQL date filters first, then runs vector similarity only on the filtered subset — this is far more efficient than filtering post-search.
+
+---
+
+## Daily Enrichment Pipeline
+
+Every day at **09:00 UTC**, a GitHub Actions cron job runs `scripts/keyword_enrichment.py`:
+
+1. Loads active keywords from `enrichment_config` table in Supabase
+2. Searches for fresh articles via **NewsAPI.org** (free tier, 100 req/day)
+3. Passes each article to **GPT-4o** for:
+   - Relevance check (skip irrelevant articles)
+   - Sentiment classification (`pozitiv` / `neytral` / `riskli`)
+   - Azerbaijani summary generation (`summary_az`)
+4. Generates `text-embedding-3-small` embedding
+5. Upserts to Supabase with `is_enriched = true`
+
+Keywords are managed via the **⚙️ Settings** panel in the web dashboard.
+
+---
+
+## Sentiment Analysis
+
+All 20,915 base articles have been processed with `gpt-4.1-mini` for sentiment classification. Every article in the database has a `sentiment` field:
+
+- 🟢 **Pozitiv** — positive news (growth, achievement, improvement)
+- 🔵 **Neytral** — neutral/informational
+- 🔴 **Riskli** — negative/risky (crisis, accident, price increase)
+
+---
+
+## Tech Stack
+
+| Component | Technology |
+|-----------|-----------|
+| Vector Store | Supabase pgvector (`vector(1536)`) |
+| Embeddings | OpenAI `text-embedding-3-small` |
+| Query Parsing | OpenAI `gpt-4.1-mini` |
+| Summary Generation | OpenAI `gpt-4o` |
+| Sentiment Analysis | OpenAI `gpt-4.1-mini` |
+| Telegram Bot | `python-telegram-bot` |
+| Web Dashboard | Single-file HTML + Vanilla JS |
+| API Backend | FastAPI + Uvicorn |
+| Enrichment | NewsAPI.org + GitHub Actions |
+| Deployment | Railway (bot + API) |
 
 ---
 
 ## Setup Instructions
 
 ### 1. Prerequisites
+
 - Python 3.11+
-- Node.js (for the web frontend)
+- Docker (for docker compose)
 - OpenAI API Key
 - Telegram Bot Token (from @BotFather)
-- Supabase project with `pgvector` extension enabled
+- Supabase project with `pgvector` extension
+- NewsAPI.org key (free at [newsapi.org/register](https://newsapi.org/register))
 
-### 2. Installation
+### 2. Configure Environment
 
-Clone the repository and install backend dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-Set up your environment variables by copying the example file:
 ```bash
 cp .env.example .env
-# Edit .env and add your OPENAI_API_KEY and TELEGRAM_BOT_TOKEN
+# Fill in your credentials
+```
+
+Required variables:
+
+```env
+OPENAI_API_KEY=sk-proj-...
+TELEGRAM_BOT_TOKEN=123456:ABC...
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_KEY=eyJhbGci...
+NEWS_API_KEY=your_newsapi_key
 ```
 
 ### 3. Database Setup
 
-> ✅ **Database is pre-loaded.** Our Supabase instance already contains all 20,915 articles with embeddings. You do NOT need to run `load_to_supabase.py` or have `news_data.xlsx`.
+> ✅ **Database is pre-loaded.** Our Supabase instance already contains all 20,915 articles with embeddings and sentiment analysis. You do NOT need to run `load_to_supabase.py` or have `news_data.xlsx`.
 
 Simply fill in `.env` with your credentials and run the project.
 
@@ -73,54 +151,78 @@ Simply fill in `.env` with your credentials and run the project.
 <summary>Optional: Load your own Supabase instance from scratch</summary>
 
 1. Run `supabase/schema.sql` in Supabase SQL Editor
-2. Place `news_data.xlsx` in `data/` folder
-3. Run `python scripts/load_to_supabase.py`
+2. Run `supabase/enrichment_schema.sql` for the keywords config table
+3. Place `news_data.xlsx` in `data/` folder
+4. Run `python scripts/load_to_supabase.py`
+5. Run `python scripts/bulk_sentiment.py` to add sentiment to all articles
 
 </details>
 
 ---
 
-## Running the Project (Local Evaluation)
+## Running the Project
 
-We have provided a `docker-compose.yml` to make it incredibly easy for judges to run the entire stack locally with a single command.
+### Option A: Docker Compose (Recommended)
 
-### 1. Configure Environment
-Create a `.env` file in the root directory (you can copy `.env.example`) and fill in the required keys:
-```env
-OPENAI_API_KEY=sk-proj-...
-TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1...
-```
-
-### 2. Run via Docker Compose
-Run the following command in the project root:
 ```bash
 docker compose up --build
 ```
-This single command will:
-1. Start the **FastAPI Backend** on port 8000.
-2. Serve the **Web Dashboard** at `http://localhost:8000`.
-3. Start the **Telegram Bot** in the background.
 
-### 3. Test the Solution
-- **Web Dashboard:** Open [http://localhost:8000](http://localhost:8000) in your browser.
-- **Telegram Bot:** Send a message to your configured bot (e.g., `Find news about AccessBank`, `/stats`, `/keywords`).
+This starts:
+- **FastAPI backend + Web Dashboard** at `http://localhost:8000`
+- **Telegram Bot** in the background
 
-### Alternative: Run via Python (Without Docker)
-If you prefer not to use Docker, you can run the services manually:
+### Option B: Python (Without Docker)
+
 ```bash
 pip install -r requirements.txt
 
-# Start the API and Web Dashboard (Terminal 1)
+# Terminal 1 — API + Web Dashboard
 PYTHONPATH=backend uvicorn backend.app:app --host 0.0.0.0 --port 8000
 
-# Start the Telegram Bot (Terminal 2)
+# Terminal 2 — Telegram Bot
 PYTHONPATH=backend python backend/bot.py
+```
+
+### Option C: Run Enrichment Manually
+
+```bash
+# Fetch fresh news for configured keywords
+PYTHONPATH=backend python scripts/keyword_enrichment.py
+
+# Run bulk sentiment analysis on all articles
+PYTHONPATH=backend python scripts/bulk_sentiment.py
 ```
 
 ---
 
+## GitHub Actions Secrets
+
+To enable the daily enrichment pipeline, add these secrets in **Settings → Secrets → Actions**:
+
+| Secret | Description |
+|--------|-------------|
+| `OPENAI_API_KEY` | OpenAI API key |
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_KEY` | Supabase service role key |
+| `NEWS_API_KEY` | NewsAPI.org key |
+
+---
+
+## Web Dashboard Features
+
+- **Search bar** with example queries
+- **Date filter** — select a date to get an AI-generated daily digest
+- **Category filter** — 20 most common categories from the database
+- **⚙️ Settings panel** — manage enrichment keywords, run enrichment manually
+- **Results** with relevance score, sentiment badge, source, date
+- **AI Topic Categories** sidebar — GPT-4o clusters results by topic
+- **Sources** sidebar — breakdown by news outlet
+
+---
+
 ## Known Limitations
-- The vector search relies on the `text-embedding-3-small` model, which handles Azerbaijani and Russian well, but might miss some highly specific local slang.
-- Keyword extraction uses a frequency-based approach with a predefined stopword list. For production, a dedicated NER (Named Entity Recognition) model would yield cleaner entities.
+
+- NewsAPI free tier returns results primarily in English/Russian; Azerbaijani-language articles may be limited
+- The vector similarity scores are in the 0.30–0.50 range for this model/language combination; scores are rescaled to 80–100% for display
+- Keyword extraction uses frequency analysis; a dedicated NER model would yield cleaner entities
