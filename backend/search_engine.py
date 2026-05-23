@@ -287,18 +287,20 @@ class NewsSearchEngine:
         resp = self.oai.embeddings.create(model=EMBED_MODEL, input=[text])
         return resp.data[0].embedding
 
-    def search(self, query: str, top_k: int = TOP_K) -> dict:
+    def search(self, query: str, top_k: int = TOP_K, category_filter: str = None) -> dict:
         parsed = self.parser.parse(query)
         topic = parsed.get("topic") or query
         date_from = parsed.get("date_from")
         date_to = parsed.get("date_to")
+        # category from explicit filter overrides parsed category
+        category = category_filter or parsed.get("category")
 
         embedding = self._embed(topic)
 
         try:
             rpc_params: dict = {
                 "query_embedding": embedding,
-                "match_count": top_k,
+                "match_count": top_k * 3 if category else top_k,  # fetch more when filtering
             }
             if date_from:
                 rpc_params["date_from"] = date_from
@@ -307,6 +309,15 @@ class NewsSearchEngine:
 
             resp = self.sb.rpc("search_news", rpc_params).execute()
             rows = resp.data or []
+
+            # Apply category filter in Python (case-insensitive partial match)
+            if category:
+                rows = [
+                    r for r in rows
+                    if category.lower() in (r.get("category") or "").lower()
+                ]
+                log.info("Category filter '%s': %d rows remaining", category, len(rows))
+
         except Exception as exc:
             log.error("Supabase RPC error: %s", exc, exc_info=True)
             raise

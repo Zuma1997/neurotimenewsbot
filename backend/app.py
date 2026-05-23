@@ -53,6 +53,7 @@ def get_engine() -> NewsSearchEngine:
 class SearchRequest(BaseModel):
     query: str
     top_k: int = 15
+    category: str = None  # optional category filter (exact match on articles.category)
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -63,9 +64,9 @@ def health():
 
 @app.post("/api/search")
 def search(req: SearchRequest):
-    log.info("Search: %s", req.query)
+    log.info("Search: %s (category=%s)", req.query, req.category)
     try:
-        return get_engine().search(req.query, top_k=req.top_k)
+        return get_engine().search(req.query, top_k=req.top_k, category_filter=req.category)
     except Exception as exc:
         log.error("Search error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))

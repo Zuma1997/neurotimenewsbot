@@ -675,10 +675,13 @@ async function doSearch() {
   clearError();
 
   try {
+    const body = { query: fullQuery, top_k: 15 };
+    if (activeCategory) body.category = activeCategory;
+
     const resp = await fetch(`${API_BASE}/api/search`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: fullQuery, top_k: 15 }),
+      body: JSON.stringify(body),
     });
 
     if (!resp.ok) {
@@ -754,6 +757,12 @@ function selectCategory(cat, el) {
   // Re-run search if there's a query
   const q = document.getElementById("query-input").value.trim();
   if (q) doSearch();
+  // If no query but category selected, search with category name as query
+  else if (cat) {
+    document.getElementById("query-input").value = cat;
+    doSearch();
+    document.getElementById("query-input").value = "";
+  }
 }
 
 // ── Daily Digest ───────────────────────────────────────────────────────────────────────────────────
@@ -818,23 +827,6 @@ async function loadDigest(dateFrom, dateTo) {
     document.getElementById("digest-area").innerHTML = "";
   }
 }
-
-// ── Update search to include category filter ────────────────────────────────────────────────
-const _origDoSearch = doSearch;
-// Patch doSearch to append category to query if active
-const doSearchWithCat = async function() {
-  if (activeCategory) {
-    const input = document.getElementById("query-input");
-    const q = input.value.trim();
-    // Temporarily append category to query
-    const savedQ = q;
-    input.value = q ? `${q} kateqoriya:${activeCategory}` : activeCategory;
-    await _origDoSearch();
-    input.value = savedQ;
-  } else {
-    await _origDoSearch();
-  }
-};
 
 // ── Load stats on page load ─────────────────────────────────────────────────────
 async function loadStats() {
