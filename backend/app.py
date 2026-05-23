@@ -30,8 +30,10 @@ app = FastAPI(title="News Search Assistant", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_origins=[
+        "*",  # Allow all origins (GitHub Pages, local dev, etc.)
+    ],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
