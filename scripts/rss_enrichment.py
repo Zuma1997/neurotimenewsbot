@@ -39,11 +39,14 @@ log = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 RSS_FEEDS = [
-    "https://oxu.az/rss",
-    "https://az.trend.az/rss",
-    "https://1news.az/rss",
-    "https://modern.az/rss",
-    "https://redaktor.az/rss",
+    "https://az.trend.az/rss/azerbaijan.rss",
+    "https://az.trend.az/rss/business.rss",
+    "https://az.trend.az/rss/economy.rss",
+    "https://www.azernews.az/rss/Azerbaijan.xml",
+    "https://www.azernews.az/rss/Business.xml",
+    "https://report.az/rss.xml",
+    "https://banker.az/feed/",
+    "https://abb-bank.az/rss",
 ]
 
 EMBED_MODEL = "text-embedding-3-small"
@@ -313,7 +316,7 @@ def main() -> None:
     log.info("Total articles fetched from RSS: %d", len(all_articles))
 
     if not all_articles:
-        log.warning("No articles fetched — exiting")
+        log.info("No new articles today — pipeline healthy")
         return
 
     # Step 2: Deduplicate against Supabase
@@ -324,7 +327,7 @@ def main() -> None:
              len(new_articles), len(all_articles) - len(new_articles))
 
     if not new_articles:
-        log.info("No new articles to process — pipeline complete")
+        log.info("No new articles today — pipeline healthy")
         return
 
     # Step 3-5: Analyze, embed, upsert
