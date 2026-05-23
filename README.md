@@ -119,44 +119,18 @@ All 20,915 base articles have been processed with `gpt-4.1-mini` for sentiment c
 
 - Python 3.11+
 - Docker (for docker compose)
-- OpenAI API Key
-- Telegram Bot Token (from @BotFather)
-- Supabase project with `pgvector` extension
-- NewsAPI.org key (free at [newsapi.org/register](https://newsapi.org/register))
 
 ### 2. Configure Environment
 
-```bash
-cp .env.example .env
-# Fill in your credentials
-```
+> 📧 **A pre-configured `.env` file will be provided to judges directly by the team.** No credentials setup required.
 
-Required variables:
-
-```env
-OPENAI_API_KEY=sk-proj-...
-TELEGRAM_BOT_TOKEN=123456:ABC...
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_KEY=eyJhbGci...
-NEWS_API_KEY=your_newsapi_key
-```
+If you need to configure it manually, copy `.env.example` and fill in your own credentials.
 
 ### 3. Database Setup
 
-> ✅ **Database is pre-loaded.** Our Supabase instance already contains all 20,915 articles with embeddings and sentiment analysis. You do NOT need to run `load_to_supabase.py` or have `news_data.xlsx`.
-
-Simply fill in `.env` with your credentials and run the project.
-
-<details>
-<summary>Optional: Load your own Supabase instance from scratch</summary>
-
-1. Run `supabase/schema.sql` in Supabase SQL Editor
-2. Run `supabase/enrichment_schema.sql` for the keywords config table
-3. Place `news_data.xlsx` in `data/` folder
-4. Run `python scripts/load_to_supabase.py`
-5. Run `python scripts/bulk_sentiment.py` to add sentiment to all articles
-
-</details>
+> ✅ **Database is pre-loaded.** Our Supabase instance already contains all 20,915 articles with embeddings and sentiment analysis. The `.env` file provided by the team already points to this instance.
+>
+> You do NOT need to run any scripts or have `news_data.xlsx`.
 
 ---
 
