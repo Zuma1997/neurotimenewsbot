@@ -2,6 +2,10 @@
 
 This repository contains the solution for the **Neurotime Hackathon Task: AI News Search Assistant with Date-Aware Retrieval**.
 
+> 🤖 **Live Demo:** [t.me/slnacessbankbot](https://t.me/slnacessbankbot)
+> Just open the link and send any query — no setup required.
+> Example: `AccessBank haqqında xəbərlər` or `SOCAR news on May 13`
+
 ## Overview
 The system allows users to search through ~21,000 base news articles (May 10–15, 2026) plus **daily enriched articles** using natural language. It handles date ranges, topic extraction, and keyword analysis, and provides a **Telegram Bot** and a **Web Dashboard**.
 
