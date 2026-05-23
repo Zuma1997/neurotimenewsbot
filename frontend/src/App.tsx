@@ -12,43 +12,51 @@ interface Article {
   category: string;
   snippet: string;
   score: number;
+  is_enriched?: boolean;
+  sentiment?: string;
+  summary_az?: string;
 }
 
-interface Keyword {
-  keyword: string;
-  count: number;
+interface Category {
+  category: string;
+  count: number | string;
+  description?: string;
 }
 
 interface SearchResponse {
   results: Article[];
-  keywords: Keyword[];
+  categories: Category[];
   parsed_query: Record<string, string | null>;
-  total_in_range: number;
+  total_results: number;
 }
 
 function ScoreBadge({ score }: { score: number }) {
   const pct = Math.round(score * 100);
-  const color =
-    pct >= 70 ? "#22c55e" : pct >= 45 ? "#f59e0b" : "#94a3b8";
+  const bg = pct >= 70 ? "#6DC49A" : pct >= 45 ? "#87CEEB" : "#c0c3d0";
   return (
-    <span
-      style={{
-        background: color,
-        color: "#fff",
-        borderRadius: 4,
-        padding: "2px 7px",
-        fontSize: 12,
-        fontWeight: 700,
-      }}
-    >
+    <span className="score-badge" style={{ background: bg }}>
       {pct}%
+    </span>
+  );
+}
+
+function SentimentBadge({ sentiment }: { sentiment?: string }) {
+  if (!sentiment) return null;
+  const labels: Record<string, string> = {
+    pozitiv: "🟢 Pozitiv",
+    neytral: "🔵 Neytral",
+    riskli: "🔴 Riskli",
+  };
+  return (
+    <span className={`sentiment-${sentiment.toLowerCase()}`}>
+      {labels[sentiment.toLowerCase()] || sentiment}
     </span>
   );
 }
 
 function ArticleCard({ article, index }: { article: Article; index: number }) {
   const date = article.published_at
-    ? new Date(article.published_at).toLocaleString("ru-RU", {
+    ? new Date(article.published_at).toLocaleString("az-AZ", {
         day: "2-digit",
         month: "short",
         hour: "2-digit",
@@ -66,6 +74,12 @@ function ArticleCard({ article, index }: { article: Article; index: number }) {
         {article.category && (
           <span className="card-category">{article.category}</span>
         )}
+        {article.is_enriched && (
+          <span className="card-enriched">✨ Enriched</span>
+        )}
+        {article.sentiment && (
+          <SentimentBadge sentiment={article.sentiment} />
+        )}
       </div>
       <a
         className="card-title"
@@ -76,31 +90,37 @@ function ArticleCard({ article, index }: { article: Article; index: number }) {
         {article.title || "(no title)"}
       </a>
       <p className="card-snippet">{article.snippet}</p>
+      {article.summary_az && (
+        <div className="card-summary">{article.summary_az}</div>
+      )}
     </div>
   );
 }
 
-function KeywordCloud({ keywords }: { keywords: Keyword[] }) {
-  if (!keywords.length) return null;
-  const max = keywords[0].count;
+function CategoriesBlock({
+  categories,
+  title,
+}: {
+  categories: Category[];
+  title: string;
+}) {
+  if (!categories.length) return null;
   return (
-    <div className="keyword-section">
-      <h3>🔑 Top Keywords in Results</h3>
-      <div className="keyword-cloud">
-        {keywords.map((kw) => {
-          const size = 12 + (kw.count / max) * 14;
-          const opacity = 0.5 + (kw.count / max) * 0.5;
-          return (
-            <span
-              key={kw.keyword}
-              className="keyword-tag"
-              style={{ fontSize: size, opacity }}
-              title={`${kw.count} occurrences`}
-            >
-              {kw.keyword}
-            </span>
-          );
-        })}
+    <div className="category-section">
+      <h3>{title}</h3>
+      <div className="category-list">
+        {categories.map((cat, i) => (
+          <div key={i} className="category-item">
+            <div className="category-num">{i + 1}</div>
+            <div className="category-body">
+              <span className="category-name">{cat.category}</span>
+              <span className="category-count">{cat.count} articles</span>
+              {cat.description && (
+                <div className="category-desc">{cat.description}</div>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -111,7 +131,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<SearchResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [globalKws, setGlobalKws] = useState<Keyword[] | null>(null);
+  const [globalCats, setGlobalCats] = useState<Category[] | null>(null);
   const [loadingGlobal, setLoadingGlobal] = useState(false);
 
   const handleSearch = useCallback(async () => {
@@ -126,19 +146,20 @@ export default function App() {
       });
       setResponse(data);
     } catch (e: unknown) {
-      const msg =
-        axios.isAxiosError(e) ? e.response?.data?.detail || e.message : String(e);
+      const msg = axios.isAxiosError(e)
+        ? e.response?.data?.detail || e.message
+        : String(e);
       setError(msg);
     } finally {
       setLoading(false);
     }
   }, [query]);
 
-  const handleGlobalKeywords = async () => {
+  const handleGlobalCategories = async () => {
     setLoadingGlobal(true);
     try {
-      const { data } = await axios.get(`${API_BASE}/api/keywords/global?top_n=30`);
-      setGlobalKws(data.keywords);
+      const { data } = await axios.get(`${API_BASE}/api/keywords/global?top_n=8`);
+      setGlobalCats(data.keywords || data.categories || []);
     } catch (e: unknown) {
       const msg = axios.isAxiosError(e) ? e.message : String(e);
       setError(msg);
@@ -155,21 +176,25 @@ export default function App() {
 
   return (
     <div className="app">
+      {/* Header */}
       <header className="header">
         <div className="header-inner">
-          <h1>📰 News Search Assistant</h1>
+          <h1>
+            News <span className="accent">Intelligence</span>
+          </h1>
           <p className="subtitle">
-            AI-powered search over ~21,000 Azerbaijani news articles · May 10–15, 2026
+            AI-powered search · ~21,000 Azerbaijani articles · May 10–15, 2026 + daily enrichment
           </p>
         </div>
       </header>
 
+      {/* Search */}
       <div className="search-section">
         <div className="search-box">
           <input
             className="search-input"
             type="text"
-            placeholder='e.g. "Find news about AccessBank between May 12 and May 14"'
+            placeholder='e.g. "AccessBank haqqında xəbərlər" or "SOCAR news on May 13"'
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -179,7 +204,7 @@ export default function App() {
             onClick={handleSearch}
             disabled={loading || !query.trim()}
           >
-            {loading ? "⏳" : "Search"}
+            {loading ? "Searching…" : "Search"}
           </button>
         </div>
         <div className="example-queries">
@@ -187,47 +212,49 @@ export default function App() {
             "AccessBank haqqında xəbərlər",
             "Banking regulation news",
             "SOCAR news on May 13",
-            "Negative economy news after May 12",
+            "Riskli iqtisadi xəbərlər",
             "Customs between May 11 and May 14",
           ].map((ex) => (
-            <button
-              key={ex}
-              className="example-btn"
-              onClick={() => setQuery(ex)}
-            >
+            <button key={ex} className="example-btn" onClick={() => setQuery(ex)}>
               {ex}
             </button>
           ))}
         </div>
       </div>
 
-      {error && <div className="error-box">❌ {error}</div>}
+      {/* Error */}
+      {error && <div className="error-box">⚠️ {error}</div>}
 
+      {/* Parsed query info */}
       {parsed && (
         <div className="parsed-info">
           <span>
-            🔎 <strong>Topic:</strong> {parsed.topic}
+            <strong>Topic:</strong> {parsed.topic}
           </span>
           {(parsed.date_from || parsed.date_to) && (
             <span>
-              📅 <strong>Dates:</strong> {parsed.date_from || "start"} →{" "}
+              <strong>Dates:</strong> {parsed.date_from || "start"} →{" "}
               {parsed.date_to || "end"}
             </span>
           )}
           <span>
-            📊 <strong>Articles in range:</strong> {response?.total_in_range}
+            <strong>Results:</strong> {response?.total_results}
           </span>
-          <span>
-            📋 <strong>Results shown:</strong> {response?.results.length}
-          </span>
+          {(response?.results.filter((r) => r.is_enriched).length ?? 0) > 0 && (
+            <span>
+              <strong>✨ Enriched:</strong>{" "}
+              {response?.results.filter((r) => r.is_enriched).length}
+            </span>
+          )}
         </div>
       )}
 
+      {/* Results */}
       {response && (
         <div className="results-section">
           {response.results.length === 0 ? (
             <div className="no-results">
-              😕 No articles found. Try different keywords or date range.
+              No articles found. Try different keywords or a broader date range.
             </div>
           ) : (
             <>
@@ -236,41 +263,31 @@ export default function App() {
                   <ArticleCard key={article.url + i} article={article} index={i} />
                 ))}
               </div>
-              <KeywordCloud keywords={response.keywords} />
+              {response.categories?.length > 0 && (
+                <CategoriesBlock
+                  categories={response.categories}
+                  title="📊 Topic Categories in Results"
+                />
+              )}
             </>
           )}
         </div>
       )}
 
+      {/* Global categories */}
       <div className="global-kw-section">
         <button
           className="global-kw-btn"
-          onClick={handleGlobalKeywords}
+          onClick={handleGlobalCategories}
           disabled={loadingGlobal}
         >
-          {loadingGlobal ? "Loading…" : "📊 Show Global Top Keywords"}
+          {loadingGlobal ? "Analysing…" : "📊 Show Global Topic Categories"}
         </button>
-        {globalKws && (
-          <div className="keyword-section">
-            <h3>🌐 Top Keywords — Full Dataset</h3>
-            <div className="keyword-table">
-              {globalKws.map((kw, i) => (
-                <div key={kw.keyword} className="kw-row">
-                  <span className="kw-rank">#{i + 1}</span>
-                  <span className="kw-word">{kw.keyword}</span>
-                  <span className="kw-bar-wrap">
-                    <span
-                      className="kw-bar"
-                      style={{
-                        width: `${(kw.count / globalKws[0].count) * 100}%`,
-                      }}
-                    />
-                  </span>
-                  <span className="kw-count">{kw.count}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+        {globalCats && globalCats.length > 0 && (
+          <CategoriesBlock
+            categories={globalCats}
+            title="🌐 Global Topic Categories — Latest Articles"
+          />
         )}
       </div>
 
