@@ -831,11 +831,15 @@ async function loadCategories() {
 function onCategorySelect(sel) {
   activeCategory = sel.value || null;
   const q = document.getElementById("query-input").value.trim();
-  if (q) doSearch();
-  else if (activeCategory) {
+  if (q) {
+    doSearch();
+  } else if (activeCategory) {
+    // Search with a broad query to get articles from this category
+    const savedQ = document.getElementById("query-input").value;
     document.getElementById("query-input").value = activeCategory;
     doSearch();
-    document.getElementById("query-input").value = "";
+    // Restore empty input after search starts
+    setTimeout(() => { document.getElementById("query-input").value = savedQ; }, 100);
   }
 }
 
