@@ -96,10 +96,10 @@ If you prefer not to use Docker, you can run the services manually:
 pip install -r requirements.txt
 
 # Start the API and Web Dashboard (Terminal 1)
-uvicorn backend.app:app --host 0.0.0.0 --port 8000
+PYTHONPATH=backend uvicorn backend.app:app --host 0.0.0.0 --port 8000
 
 # Start the Telegram Bot (Terminal 2)
-python backend/bot.py
+PYTHONPATH=backend python backend/bot.py
 ```
 
 ---

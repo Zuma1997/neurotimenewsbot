@@ -11,6 +11,8 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      - PYTHONPATH=/app/backend
     volumes:
       - ./backend:/app/backend
       - ./data:/app/data
@@ -23,6 +25,8 @@ services:
     command: python backend/bot.py
     env_file:
       - .env
+    environment:
+      - PYTHONPATH=/app/backend
     volumes:
       - ./backend:/app/backend
       - ./data:/app/data

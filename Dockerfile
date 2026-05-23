@@ -12,5 +12,8 @@ COPY scripts/ ./scripts/
 COPY data/ ./data/
 COPY dashboard.html ./dashboard.html
 
+# Set PYTHONPATH so backend modules can import each other
+ENV PYTHONPATH=/app/backend
+
 # Default command (overridden by docker-compose)
 CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000"]
