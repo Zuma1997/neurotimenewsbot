@@ -290,15 +290,15 @@ header {
   padding: 0 0 16px;
 }
 .cat-chip {
-  background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 20px; padding: 5px 14px;
-  font-size: 12px; color: var(--muted); cursor: pointer;
-  transition: all 0.15s; white-space: nowrap;
+  background: var(--surface); border: 1.5px solid var(--border2);
+  border-radius: 20px; padding: 5px 16px;
+  font-size: 13px; color: var(--muted); cursor: pointer;
+  transition: all 0.15s; white-space: nowrap; font-weight: 500;
 }
-.cat-chip:hover { border-color: var(--accent); color: var(--accent2); }
+.cat-chip:hover { border-color: var(--accent); color: var(--accent); background: #ede9fe; }
 .cat-chip.active {
-  background: #6c63ff22; border-color: var(--accent);
-  color: var(--accent2); font-weight: 600;
+  background: var(--accent); border-color: var(--accent);
+  color: #fff; font-weight: 700;
 }
 
 /* ── Settings page ── */
@@ -530,9 +530,9 @@ header {
   <div style="display:flex;gap:8px;flex-wrap:wrap;padding:0 0 10px;align-items:center">
     <span style="font-family:var(--font-head);font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em">Sentment:</span>
     <div class="cat-chip active" id="sent-all" onclick="selectSentiment(null, this)">Hamısı</div>
-    <div class="cat-chip" id="sent-pozitiv" onclick="selectSentiment('pozitiv', this)" style="color:#2ecc8a;border-color:#2ecc8a40">🟢 Pozitiv</div>
-    <div class="cat-chip" id="sent-neytral" onclick="selectSentiment('neytral', this)" style="color:#f0a04a;border-color:#f0a04a40">🔵 Neytral</div>
-    <div class="cat-chip" id="sent-riskli" onclick="selectSentiment('riskli', this)" style="color:#ff5a5a;border-color:#ff5a5a40">🔴 Riskli</div>
+    <div class="cat-chip" id="sent-pozitiv" onclick="selectSentiment('pozitiv', this)">🟢 Pozitiv</div>
+    <div class="cat-chip" id="sent-neytral" onclick="selectSentiment('neytral', this)">🔵 Neytral</div>
+    <div class="cat-chip" id="sent-riskli" onclick="selectSentiment('riskli', this)">🔴 Riskli</div>
   </div>
 
   <!-- CATEGORY FILTER -->
@@ -805,7 +805,10 @@ let activeSentiment = null;
 
 function selectSentiment(sent, el) {
   activeSentiment = sent;
-  document.querySelectorAll("#sent-all, #sent-pozitiv, #sent-neytral, #sent-riskli").forEach(c => c.classList.remove("active"));
+  ["sent-all","sent-pozitiv","sent-neytral","sent-riskli"].forEach(id => {
+    const el2 = document.getElementById(id);
+    if (el2) el2.classList.remove("active");
+  });
   el.classList.add("active");
   const q = document.getElementById("query-input").value.trim();
   if (q) doSearch();
